@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div class="card-stage-content">
+  <svg viewBox="0 0 640 230" id="muscleSvg">
+    <line x1="40" y1="185" x2="600" y2="185" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+    <path id="r0_ghostCurve" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1" stroke-dasharray="3 3"/>
+    <path id="r0_muscleFill" fill="rgba(255,180,67,0.15)" stroke="none"/>
+    <path id="r0_musclePath" fill="none" stroke="var(--muscle-curve)" stroke-width="3"/>
+    <line id="r0_boneLine" stroke="var(--bone)" stroke-width="4" stroke-linecap="round"/>
+    <circle id="r0_apexDot" r="4" fill="var(--joint)" stroke="var(--bg-panel)" stroke-width="1.5"/>
+    <circle id="r0_jointA" r="6" fill="var(--joint)"/>
+    <circle id="r0_jointB" r="6" fill="var(--joint)"/>
+  </svg>
+</div>
+<div class="card-controls-content">
+
+  <div class="recipe-card">
+    <p class="recipe-one-liner">A bulging curve between two joints — height grows as they compress, with optional spring overshoot.</p>
+    <dl class="recipe-io">
+      <div class="recipe-io-row"><dt>Inputs</dt><dd>Joint A &amp; B positions, max height, profile exponent, apex slide, spring blend / stiffness / damping</dd></div>
+      <div class="recipe-io-row"><dt>Output</dt><dd>Curve points along the span — portable to any path, CV list, or joint chain</dd></div>
+    </dl>
+    <p class="recipe-intuition">As distance shrinks, target bulge rises. A superellipse profile shapes the peak; sliding the apex shifts bulk left or right. Blend in a damped spring so the bulge lags and settles instead of snapping.</p>
+    <details class="formula-box recipe-core">
+      <summary>Pseudocode</summary>
+      <div class="formula-body mono"><pre>distance = length(jointB - jointA)
+compression = (maxDist - distance) / (maxDist - minDist)
+h_target = maxHeight * clamp(compression, 0, 1)
+h = lerp(h_target, spring_integrate(h_target), springBlend)
+
+for u from -1 to 1:
+  u_w = piecewise_slide(u, apexSlide)
+  profile = (1 - abs(u_w)^exponent)^(1/exponent)
+  point = lerp(jointA, jointB, (u+1)/2) + up * h * profile</pre></div>
+    </details>
+  </div>
+
+  <div class="axis-title">Explore</div>
+  <div class="controls">
+    <div class="slider-card">
+      <div class="slider-head"><label>Joint Distance</label><span class="slider-val mono" id="r0_distVal">420px</span></div>
+      <input type="range" id="r0_dist" min="80" max="420" step="2" value="420" aria-label="Joint distance">
+    </div>
+    <label class="toggle-row"><input type="checkbox" id="animToggle0" checked aria-label="Animate flex with hold ends"> Animate Flex (Hold Ends)</label>
+    
+    <div class="axis-title">Muscle / Fat Physics Dynamics</div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Spring Dynamic Blend</label><span class="slider-val mono" id="r0_springBlendVal">1.00</span></div>
+      <input type="range" id="r0_springBlend" min="0.0" max="1.0" step="0.05" value="1.00" aria-label="Spring dynamic blend">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Spring Strength (Stiffness)</label><span class="slider-val mono" id="r0_stiffnessVal">120.0</span></div>
+      <input type="range" id="r0_stiffness" min="20.0" max="350.0" step="5.0" value="120.0" aria-label="Spring strength stiffness">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Critical Damping</label><span class="slider-val mono" id="r0_dampingVal">0.35 (Underdamped)</span></div>
+      <input type="range" id="r0_damping" min="0.05" max="1.8" step="0.05" value="0.35" aria-label="Critical damping">
+    </div>
+
+    <div class="axis-title">Shape Profile Settings</div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Max Peak Height</label><span class="slider-val mono" id="r0_hVal">95px</span></div>
+      <input type="range" id="r0_maxHeight" min="-80" max="140" step="2" value="95" aria-label="Max peak height">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Straight-Curved</label><span class="slider-val mono" id="r0_expVal">2.00</span></div>
+      <input type="range" id="r0_exponent" min="1.0" max="5.0" step="0.1" value="2.0" aria-label="Straight-curved exponent">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Apex Slide</label><span class="slider-val mono" id="r0_slideVal">0.00 (Center)</span></div>
+      <input type="range" id="r0_slide" min="-0.85" max="0.85" step="0.02" value="0.0" aria-label="Apex Slide">
+    </div>
+  </div>
+
+    <details class="formula-box">
+      <summary>Full formula breakdown</summary>
+      <div class="formula-body mono">
+<pre>1. Harmonic Spring-Mass Oscillator Simulation:
+   h_kinematic = max_h * (1 - Distance / Max_Distance)
+   a_spring = -Stiffness * (h_current - h_target) - (2 * Damping * sqrt(Stiffness)) * v_current
+   v_next = v_current + a_spring * dt
+   h_spring = h_current + v_next * dt
+   h_final = lerp(h_kinematic, h_spring, Blend)
+
+2. Piecewise Linear Slide & Superellipse Profile:
+   if u &lt; apexSlide:
+       u_warped = (u - apexSlide) / (1.0 + apexSlide)
+   else:
+       u_warped = (u - apexSlide) / (1.0 - apexSlide)
+
+   profile = (1 - |u_warped|^n)^(1/n)
+   y(u) = base_y - h_final * profile</pre>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r0_node_details">
+      <summary>Node graph (Maya wiring)</summary>
+      <div class="formula-body">
+        <div class="m-graph-view" id="r0_graph_container">
+          <div class="m-canvas" id="r0_node_canvas">
+            <svg class="m-svg-layer" id="r0_node_svg"></svg>
+            
+            <div class="m-node" style="left: 20px; top: 30px;">
+              <div class="m-header">JointA</div>
+              <div class="m-body">
+                <div class="m-row"><span class="m-label">worldPos</span><div class="m-port out vec3" id="r0_p_ja_out"></div></div>
+              </div>
+            </div>
+            <div class="m-node" style="left: 20px; top: 130px;">
+              <div class="m-header">JointB</div>
+              <div class="m-body">
+                <div class="m-row"><span class="m-label">worldPos</span><div class="m-port out vec3" id="r0_p_jb_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 175px; top: 75px;">
+              <div class="m-header util">distanceBetween</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in vec3" id="r0_p_dist_p1"></div><span class="m-label">point1</span></div>
+                <div class="m-row"><div class="m-port in vec3" id="r0_p_dist_p2"></div><span class="m-label">point2</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">distance</span><div class="m-port out float" id="r0_p_dist_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 330px; top: 40px;">
+              <div class="m-header physics">springSolver</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r0_p_spring_target"></div><span class="m-label">target</span></div>
+                <div class="m-row"><div class="m-port in float" id="r0_p_spring_stiff"></div><span class="m-label">stiffness</span></div>
+                <div class="m-row"><div class="m-port in float" id="r0_p_spring_damp"></div><span class="m-label">damping</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">position</span><div class="m-port out float" id="r0_p_spring_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 330px; top: 150px;">
+              <div class="m-header util">lerp</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r0_p_lerp_a"></div><span class="m-label">inputA</span></div>
+                <div class="m-row"><div class="m-port in float" id="r0_p_lerp_b"></div><span class="m-label">inputB</span></div>
+                <div class="m-row"><div class="m-port in float" id="r0_p_lerp_alpha"></div><span class="m-label">alpha</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">output</span><div class="m-port out float" id="r0_p_lerp_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 510px; top: 75px;">
+              <div class="m-header util">muscleDeformExpr</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r0_p_super_h"></div><span class="m-label">height</span></div>
+                <div class="m-row"><div class="m-port in float" id="r0_p_super_exp"></div><span class="m-label">exponent</span></div>
+                <div class="m-row"><div class="m-port in float" id="r0_p_super_slide"></div><span class="m-label">apexSlide</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">outCVs[0:11]</span><div class="m-port out vec3" id="r0_p_super_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 670px; top: 75px;">
+              <div class="m-header">MuscleCurve</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r0_p_muscle_in"></div><span class="m-label">cvPoints</span></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r0_maya_details">
+      <summary>Maya adapter script</summary>
+      <div class="formula-body mono code-block-wrapper">
+        <button class="copy-btn" id="copyScriptBtn0" aria-label="Copy Maya script to clipboard">Copy</button>
+<pre id="mayaScript0">import maya.cmds as cmds
+
+def build_muscle_rig():
+    name = "MuscleCurveRig"
+    if cmds.objExists(name): cmds.delete(name)
+    
+    root = cmds.group(em=True, name=name)
+    
+    # 1. Create Baseline Joints
+    jA = cmds.joint(name=f"{name}_JointA", p=(-210, 0, 0))
+    jB = cmds.joint(name=f"{name}_JointB", p=(210, 0, 0))
+    
+    # 2. Muscle Curve (Rest State Flat on X-Axis)
+    cvs = [(-210 + (420 * (i/11.0)), 0, 0) for i in range(12)]
+    muscle_crv = cmds.curve(name=f"{name}_MuscleCurve", d=3, p=cvs)
+    cmds.parent(muscle_crv, root)
+    
+    # 3. Parameter Controls
+    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
+    cmds.parent(settings, root)
+    cmds.setAttr(f"{settings}.visibility", 0)
+    
+    attrs = [
+        ("maxHeight", 95.0, -80.0, 140.0),
+        ("exponent", 2.0, 0.4, 4.0),
+        ("apexSlide", 0.0, -0.85, 0.85)
+    ]
+    for attr, dv, minv, maxv in attrs:
+        cmds.addAttr(settings, ln=attr, at="float", dv=dv, min=minv, max=maxv, k=True)
+    
+    # 4. Kinematic Distance
+    dist_node = cmds.createNode('distanceBetween', name=f"{name}_Dist")
+    cmds.connectAttr(f"{jA}.worldPosition[0]", f"{dist_node}.point1")
+    cmds.connectAttr(f"{jB}.worldPosition[0]", f"{dist_node}.point2")
+    
+    # 5. Generate Unrolled Piecewise Expression (Highly Optimized)
+    expr_lines = [
+        f"// --- Kinematic Height Base ---",
+        f"float $dist = {dist_node}.distance;",
+        f"float $contraction = max(0.0, 420.0 - $dist);",
+        f"float $hFinal = {settings}.maxHeight * ($contraction / 340.0);",
+        f"",
+        f"// --- Piecewise Profile Variables ---",
+        f"float $slide = {settings}.apexSlide;",
+        f"float $n = {settings}.exponent;"
+    ]
+    
+    # Python procedurally unrolls the piecewise math for all 12 Control Vertices
+    for i in range(12):
+        u = -1.0 + (i / 11.0) * 2.0
+        expr_lines.extend([
+            f"",
+            f"// CV {i} (Base U = {u:.3f})",
+            f"float $u{i} = {u:.3f};",
+            f"float $w{i} = ($u{i} < $slide) ? ($u{i} - $slide)/(1.0 + $slide) : ($u{i} - $slide)/(1.0 - $slide);",
+            f"float $p{i} = pow(max(0.0, 1.0 - pow(abs($w{i}), $n)), 1.0 / $n);",
+            f"{muscle_crv}.controlPoints[{i}].yValue = $hFinal * $p{i};"
+        ])
+        
+    # Inject exact match math directly into the dependency graph
+    cmds.expression(s="\\n".join(expr_lines), name=f"{name}_DeformExpr")
+    
+    cmds.select(settings)
+    print("Piecewise linear muscle rig generated.")
+
+build_muscle_rig()</pre>
+      </div>
+    </details>
+
+  <script>
+    (function(){
+      // ============================================
+      // CONSTANTS
+      // ============================================
+      const MUSCLE_CONSTANTS = {
+        CX: 320, BASE_Y: 185, D_MAX: 420, D_MIN: 80, STEPS: 60,
+        ANIMATION_DURATION: 4500, HOLD_FRACTION: 0.28, MAX_DT: 0.033, MIN_DT: 0.001
+      };
+      const { CX, BASE_Y, D_MAX, D_MIN, STEPS, ANIMATION_DURATION, HOLD_FRACTION, MAX_DT, MIN_DT } = MUSCLE_CONSTANTS;
+
+      // ============================================
+      // SPRING STATE
+      // ============================================
+      const springState = { current: 0, velocity: 0, lastTime: performance.now() };
+
+      // ============================================
+      // UTILITY FUNCTIONS
+      // ============================================
+      const round = (v, n) => Number(v.toFixed(n));
+      function evaluateHoldWave(t, periodMs, holdFrac) {
+        const phase = (t % periodMs) / periodMs;
+        const halfHold = holdFrac / 2;
+        if (phase < halfHold) return 0.0;
+        if (phase < 0.5 - halfHold) return (1 - Math.cos(((phase - halfHold) / (0.5 - holdFrac)) * Math.PI)) / 2;
+        if (phase < 0.5 + halfHold) return 1.0;
+        if (phase < 1.0 - halfHold) return (1 + Math.cos(((phase - (0.5 + halfHold)) / (0.5 - holdFrac)) * Math.PI)) / 2;
+        return 0.0;
+      }
+      function getDampingLabel(damping) {
+        if (damping < 0.9) return 'Underdamped (Jiggle)';
+        if (damping > 1.1) return 'Overdamped (Sluggish)';
+        return 'Critically Damped';
+      }
+      function getSlideLabel(slide) {
+        if (slide === 0) return 'Center';
+        return slide < 0 ? 'Left' : 'Right';
+      }
+
+      // ============================================
+      // DOM REFS
+      // ============================================
+      const dom = {
+        dist: document.getElementById('r0_dist'),
+        maxHeight: document.getElementById('r0_maxHeight'),
+        exponent: document.getElementById('r0_exponent'),
+        slide: document.getElementById('r0_slide'),
+        springBlend: document.getElementById('r0_springBlend'),
+        stiffness: document.getElementById('r0_stiffness'),
+        damping: document.getElementById('r0_damping'),
+        distVal: document.getElementById('r0_distVal'),
+        hVal: document.getElementById('r0_hVal'),
+        expVal: document.getElementById('r0_expVal'),
+        slideVal: document.getElementById('r0_slideVal'),
+        springBlendVal: document.getElementById('r0_springBlendVal'),
+        stiffnessVal: document.getElementById('r0_stiffnessVal'),
+        dampingVal: document.getElementById('r0_dampingVal'),
+        animToggle: document.getElementById('animToggle0'),
+        boneLine: document.getElementById('r0_boneLine'),
+        jointA: document.getElementById('r0_jointA'),
+        jointB: document.getElementById('r0_jointB'),
+        musclePath: document.getElementById('r0_musclePath'),
+        muscleFill: document.getElementById('r0_muscleFill'),
+        apexDot: document.getElementById('r0_apexDot'),
+        ghostCurve: document.getElementById('r0_ghostCurve'),
+        copyBtn: document.getElementById('copyScriptBtn0'),
+        mayaScript: document.getElementById('mayaScript0'),
+        nodeDetails: document.getElementById('r0_node_details'),
+        graphContainer: document.getElementById('r0_graph_container'),
+        nodeCanvas: document.getElementById('r0_node_canvas'),
+        svgCanvas: document.getElementById('r0_node_svg')
+      };
+
+      // ============================================
+      // SHARED CARD UTILITIES
+      // ============================================
+      const nodeGraph = CardCommon.setupNodeGraph({
+        detailsEl: dom.nodeDetails,
+        containerEl: dom.graphContainer,
+        canvasEl: dom.nodeCanvas,
+        svgEl: dom.svgCanvas,
+        connections: [
+          ['r0_p_ja_out', 'r0_p_dist_p1', 'var(--axis-z)'],
+          ['r0_p_jb_out', 'r0_p_dist_p2', 'var(--axis-z)'],
+          ['r0_p_dist_out', 'r0_p_spring_target', 'var(--axis-y)'],
+          ['r0_p_spring_out', 'r0_p_lerp_b', 'var(--axis-y)'],
+          ['r0_p_dist_out', 'r0_p_lerp_a', 'var(--axis-y)'],
+          ['r0_p_lerp_out', 'r0_p_super_h', 'var(--axis-y)'],
+          ['r0_p_super_out', 'r0_p_muscle_in', 'var(--axis-y)']
+        ]
+      });
+      CardCommon.setupCopyButton(dom.copyBtn, dom.mayaScript);
+
+      // ============================================
+      // MUSCLE UPDATE
+      // ============================================
+      function updateMuscle(force = false) {
+        const { dist, maxHeight, exponent, slide, springBlend, stiffness, damping } = dom;
+        if (!dist || !maxHeight || !exponent || !slide || !springBlend || !stiffness || !damping) return;
+
+        const d = parseFloat(dist.value);
+        const hMax = parseFloat(maxHeight.value);
+        const nExp = parseFloat(exponent.value);
+        const sVal = parseFloat(slide.value);
+        const springBlendVal = parseFloat(springBlend.value);
+        const stiffnessVal = parseFloat(stiffness.value);
+        const dampingVal = parseFloat(damping.value);
+
+        // Update displays
+        dom.distVal.textContent = `${round(d, 0)}px`;
+        dom.hVal.textContent = `${round(hMax, 0)}px`;
+        dom.expVal.textContent = round(nExp, 2);
+        dom.slideVal.textContent = `${round(sVal, 2)} (${getSlideLabel(sVal)})`;
+        dom.springBlendVal.textContent = springBlendVal === 0 ? '0.00 (Kinematic)' : round(springBlendVal, 2);
+        dom.stiffnessVal.textContent = round(stiffnessVal, 1);
+        dom.dampingVal.textContent = `${round(dampingVal, 2)} (${getDampingLabel(dampingVal)})`;
+
+        // Calculate kinematic target
+        const contraction = Math.max(0, D_MAX - d);
+        const hKinematic = hMax * (contraction / (D_MAX - D_MIN));
+
+        // Spring physics
+        const now = performance.now();
+        const dt = Math.min(MAX_DT, Math.max(MIN_DT, (now - springState.lastTime) / 1000.0));
+        springState.lastTime = now;
+
+        const cDamp = 2.0 * dampingVal * Math.sqrt(stiffnessVal);
+        const forceSpring = -stiffnessVal * (springState.current - hKinematic);
+        const forceDamping = -cDamp * springState.velocity;
+        
+        springState.velocity += (forceSpring + forceDamping) * dt;
+        springState.current += springState.velocity * dt;
+
+        // Blend kinematic and spring
+        const h = hKinematic * (1.0 - springBlendVal) + springState.current * springBlendVal;
+
+        // Calculate joint positions
+        const halfSpan = d / 2;
+        const jAx = CX - halfSpan;
+        const jBx = CX + halfSpan;
+
+        dom.boneLine.setAttribute('x1', jAx);
+        dom.boneLine.setAttribute('y1', BASE_Y);
+        dom.boneLine.setAttribute('x2', jBx);
+        dom.boneLine.setAttribute('y2', BASE_Y);
+        dom.jointA.setAttribute('cx', jAx);
+        dom.jointA.setAttribute('cy', BASE_Y);
+        dom.jointB.setAttribute('cx', jBx);
+        dom.jointB.setAttribute('cy', BASE_Y);
+
+        // Generate curve (Piecewise linear warp for perfect symmetry & height preservation)
+        let pathD = '';
+        let maxPeakY = BASE_Y;
+        let apexX = CX;
+
+        for (let i = 0; i <= STEPS; i++) {
+          const u = -1.0 + (i / STEPS) * 2.0;
+          
+          let uWarped;
+          if (u < sVal) {
+            uWarped = (u - sVal) / (1.0 + sVal);
+          } else {
+            uWarped = (u - sVal) / (1.0 - sVal);
+          }
+          
+          const profile = Math.pow(Math.max(0.0, 1.0 - Math.pow(Math.abs(uWarped), nExp)), 1.0 / nExp);
+          
+          const x = CX + u * halfSpan;
+          const y = BASE_Y - (h * profile);
+
+          pathD += (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`);
+          if (Math.abs(y - BASE_Y) > Math.abs(maxPeakY - BASE_Y)) {
+            maxPeakY = y;
+            apexX = x;
+          }
+        }
+
+        dom.musclePath.setAttribute('d', pathD);
+        dom.muscleFill.setAttribute('d', `${pathD} L ${jBx} ${BASE_Y} L ${jAx} ${BASE_Y} Z`);
+        dom.apexDot.setAttribute('cx', apexX);
+        dom.apexDot.setAttribute('cy', maxPeakY);
+
+        // Ghost curve
+        let ghostD = '';
+        for (let i = 0; i <= STEPS; i++) {
+          const gx = CX + (-1.0 + (i / STEPS) * 2.0) * (D_MAX / 2);
+          ghostD += (i === 0 ? `M ${gx} ${BASE_Y}` : ` L ${gx} ${BASE_Y}`);
+        }
+        dom.ghostCurve.setAttribute('d', ghostD);
+      }
+
+      // ============================================
+      // ANIMATION LOOP
+      // ============================================
+      let animationId = null;
+      let isAnimating = true;
+
+      function tick(timestamp) {
+        const { animToggle, dist } = dom;
+        if (!animToggle || !dist) return animationId = requestAnimationFrame(tick);
+        if (animToggle.checked && isAnimating) {
+          const easedWithHolds = evaluateHoldWave(timestamp, ANIMATION_DURATION, HOLD_FRACTION);
+          dist.value = (D_MAX - (D_MAX - D_MIN) * easedWithHolds).toFixed(0);
+          updateMuscle(false);
+        }
+        animationId = requestAnimationFrame(tick);
+      }
+
+      function stopAnimation() { isAnimating = false; }
+      function startAnimation() { isAnimating = true; }
+
+      // ============================================
+      // EVENT SETUP
+      // ============================================
+      function setupEvents() {
+        const { dist, maxHeight, exponent, slide, springBlend, stiffness, damping, animToggle } = dom;
+        ['dist', 'maxHeight', 'exponent', 'slide', 'springBlend', 'stiffness', 'damping'].forEach(id => {
+          const el = document.getElementById(`r0_${id}`);
+          if (el) el.addEventListener('input', () => updateMuscle(true), { passive: true });
+        });
+
+        if (dist && animToggle) {
+          dist.addEventListener('pointerdown', () => { animToggle.checked = false; startAnimation(); }, { passive: true });
+        }
+        if (animToggle) {
+          animToggle.addEventListener('change', function() { this.checked ? startAnimation() : stopAnimation(); }, { passive: true });
+        }
+
+        let lastStiffness = parseFloat(stiffness.value);
+        let lastDamping = parseFloat(damping.value);
+
+        stiffness.addEventListener('change', function() {
+          const newVal = parseFloat(this.value);
+          if (Math.abs(newVal - lastStiffness) > 50) { springState.current = 0; springState.velocity = 0; }
+          lastStiffness = newVal;
+        }, { passive: true });
+
+        damping.addEventListener('change', function() {
+          const newVal = parseFloat(this.value);
+          if (Math.abs(newVal - lastDamping) > 0.3) { springState.current = 0; springState.velocity = 0; }
+          lastDamping = newVal;
+        }, { passive: true });
+
+        updateMuscle(true);
+      }
+
+      // ============================================
+      // INITIALIZATION
+      // ============================================
+      function init() {
+        setupEvents();
+        animationId = requestAnimationFrame(tick);
+      }
+
+      window.addEventListener('beforeunload', function() {
+        if (animationId) cancelAnimationFrame(animationId);
+        nodeGraph.disconnect();
+      }, { passive: true });
+
+      init();
+    })();
+  </script>
+</div>
+</body>
+</html>

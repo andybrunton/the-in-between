@@ -1,0 +1,620 @@
+﻿<!DOCTYPE html>
+<html>
+<body>
+<div class="card-stage-content">
+  <svg viewBox="0 0 640 340" id="rig2Svg">
+    <!-- Clean background - no ghost elements -->
+    <line id="r2_chordLine" stroke="var(--chord)" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.9"/>
+    <line id="r2_bisectorAxis" stroke="var(--bisector)" stroke-width="1.3" stroke-dasharray="4 3" opacity="0.9"/>
+    <line id="r2_boneUpper" stroke="var(--bone)" stroke-width="5" stroke-linecap="round"/>
+    <line id="r2_boneForearm" stroke="var(--bone)" stroke-width="5" stroke-linecap="round"/>
+    <ellipse id="r2_ellipHull" fill="rgba(87,209,255,0.18)" stroke="var(--push-curve)" stroke-width="2"/>
+    <line id="r2_axisX" stroke="var(--axis-x)" stroke-width="1.6" opacity="0.9"/>
+    <line id="r2_axisY" stroke="var(--axis-y)" stroke-width="1.6" opacity="0.9"/>
+    <circle id="r2_volumeCenter" r="4" fill="var(--push-curve)" stroke="var(--bg-panel)" stroke-width="1.5"/>
+    <circle id="r2_jointShoulder" r="6" fill="var(--joint)"/>
+    <circle id="r2_jointElbow" r="6" fill="var(--joint)"/>
+    <circle id="r2_jointWrist" r="6" fill="var(--joint)"/>
+  </svg>
+</div>
+<div class="card-controls-content">
+
+  <div class="recipe-card">
+    <p class="recipe-one-liner">Volume pushed along the angle bisector at a joint — ellipse center shifts as the limb bends, with optional squash.</p>
+    <dl class="recipe-io">
+      <div class="recipe-io-row"><dt>Inputs</dt><dd>Three joint positions (parent, pivot, child), push ratio, orient blend, squash amount, base radius</dd></div>
+      <div class="recipe-io-row"><dt>Output</dt><dd>Ellipse center, orientation, and radii — attach to any volume proxy or deform target</dd></div>
+    </dl>
+    <p class="recipe-intuition">At the pivot joint, average the two bone directions to get a bisector. Push the volume center outward by an amount proportional to how far the joint is from straight. Blend orientation between bisector-normal and chord direction; squash width as bend increases.</p>
+    <details class="formula-box recipe-core">
+      <summary>Pseudocode</summary>
+      <div class="formula-body mono"><pre>v1 = normalize(J0 - J1)
+v2 = normalize(J2 - J1)
+bisect = normalize(v1 + v2)
+delta = 180 - jointAngle
+offset = avgBoneLength * k_push * sin(delta / 2)
+center = J1 + bisect * offset
+orient = lerp(angle(bisect)+90Â°, angle(chord), blend)
+rx = r0 * (1 - squashFactor * delta/180)
+ry = r0</pre></div>
+    </details>
+  </div>
+
+  <div class="axis-title">Explore</div>
+  <div class="controls">
+    <div class="slider-card">
+      <div class="slider-head"><label>Joint Angle</label><span class="slider-val mono" id="r2_jointVal">180&deg;</span></div>
+      <input type="range" id="r2_jointAngle" min="15" max="180" step="1" value="155" aria-label="Joint angle">
+    </div>
+    <label class="toggle-row"><input type="checkbox" id="animToggle2" checked aria-label="Animate flex"> Animate Flex</label>
+    <div class="slider-card">
+      <div class="slider-head"><label>Push Amount (k_push)</label><span class="slider-val mono" id="r2_pushVal">0.65 Ã— L</span></div>
+      <input type="range" id="r2_pushRatio" min="0" max="1.2" step="0.02" value="1.0" aria-label="Push amount">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Orient Blend (Bisector â†’ Chord)</label><span class="slider-val mono" id="r2_blendVal">0.00</span></div>
+      <input type="range" id="r2_orientBlend" min="0" max="1" step="0.01" value="0.15" aria-label="Orient blend">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Squash on Bend (Scale X)</label><span class="slider-val mono" id="r2_scaleXVal">0.65</span></div>
+      <input type="range" id="r2_scaleX" min="0" max="1.0" step="0.05" value="0.65" aria-label="Squash on bend">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Base Radius</label><span class="slider-val mono" id="r2_radiusVal">38px</span></div>
+      <input type="range" id="r2_radius" min="12" max="64" step="1" value="38" aria-label="Base radius">
+    </div>
+  </div>
+
+    <details class="formula-box">
+      <summary>Full formula breakdown</summary>
+      <div class="formula-body mono">
+<pre>2D Angle Push — pure 2D bisector push
+
+Given:
+  J0 = shoulder, J1 = elbow, J2 = wrist
+  L1 = |J1-J0|, L2 = |J2-J1|, Lavg = (L1+L2)/2
+  theta = joint angle (180 = straight)
+  delta = 180 - theta
+
+1. Vectors from elbow:
+  v1 = normalize(J0 - J1)
+  v2 = normalize(J2 - J1)
+  v_bisect = normalize(v1 + v2)
+
+2. Push:
+  offset = Lavg * k_push * sin(delta/2)
+  C = J1 + v_bisect * offset
+
+3. Orientation:
+  ang_bis = atan2(v_bisect.y, v_bisect.x) + Ï€/2
+  ang_chord = atan2(J2.y - J0.y, J2.x - J0.x)
+  ang_final = lerp(ang_bis, ang_chord, blend)
+
+4. Squash:
+  squash = 1 - 0.85 * (delta/180) * k_scaleX
+  rx = r0 * squash
+  ry = r0</pre>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r2_node_details">
+      <summary>Node graph (Maya wiring)</summary>
+      <div class="formula-body">
+        <div class="m-graph-view m-graph-view--enhanced" id="r2_graph_container">
+          <div class="m-canvas" id="r2_node_canvas">
+            <svg class="m-svg-layer" id="r2_node_svg"></svg>
+            
+            <!-- Input Nodes -->
+            <div class="m-node" style="left: 20px; top: 20px;">
+              <div class="m-header input">JointAngle</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <span class="m-label">angle</span>
+                  <div class="m-port out angle" id="r2_p_angle_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 20px; top: 110px;">
+              <div class="m-header input">JointPos</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <span class="m-label">shoulder</span>
+                  <div class="m-port out vec2" id="r2_p_j0_out"></div>
+                </div>
+                <div class="m-row">
+                  <span class="m-label">elbow</span>
+                  <div class="m-port out vec2" id="r2_p_j1_out"></div>
+                </div>
+                <div class="m-row">
+                  <span class="m-label">wrist</span>
+                  <div class="m-port out vec2" id="r2_p_j2_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bisector Node -->
+            <div class="m-node" style="left: 200px; top: 70px;">
+              <div class="m-header push">bisector</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in vec2" id="r2_p_bis_v1"></div>
+                  <span class="m-label">v1</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in vec2" id="r2_p_bis_v2"></div>
+                  <span class="m-label">v2</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">bisector</span>
+                  <div class="m-port out vec2" id="r2_p_bis_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Push Node -->
+            <div class="m-node" style="left: 380px; top: 70px;">
+              <div class="m-header push">push</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in vec2" id="r2_p_push_bis"></div>
+                  <span class="m-label">bisector</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_push_angle"></div>
+                  <span class="m-label">delta</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_push_k"></div>
+                  <span class="m-label">k_push</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">center</span>
+                  <div class="m-port out vec2" id="r2_p_push_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Orient Node -->
+            <div class="m-node" style="left: 560px; top: 30px;">
+              <div class="m-header util">orient</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in vec2" id="r2_p_orient_bis"></div>
+                  <span class="m-label">bisector</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in vec2" id="r2_p_orient_chord"></div>
+                  <span class="m-label">chord</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_orient_blend"></div>
+                  <span class="m-label">blend</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">orientation</span>
+                  <div class="m-port out float" id="r2_p_orient_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Squash Node -->
+            <div class="m-node" style="left: 560px; top: 160px;">
+              <div class="m-header util">squash</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_squash_angle"></div>
+                  <span class="m-label">delta</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_squash_k"></div>
+                  <span class="m-label">scaleX</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">squash</span>
+                  <div class="m-port out float" id="r2_p_squash_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Output Node -->
+            <div class="m-node" style="left: 700px; top: 85px;">
+              <div class="m-header output">Deform</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in vec2" id="r2_p_deform_center"></div>
+                  <span class="m-label">center</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_deform_orient"></div>
+                  <span class="m-label">orient</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r2_p_deform_squash"></div>
+                  <span class="m-label">squash</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r2_maya_details">
+      <summary>Maya adapter script</summary>
+      <div class="formula-body mono code-block-wrapper">
+        <button class="copy-btn" id="copyScriptBtn2" aria-label="Copy Maya script to clipboard">Copy</button>
+<pre id="mayaScript2">import maya.cmds as cmds
+import math
+
+def build_angle_push_rig():
+    name = "AnglePushRig"
+    if cmds.objExists(name): cmds.delete(name)
+    
+    root = cmds.group(em=True, name=name)
+    
+    # Create joints - centered in view
+    shoulder = cmds.joint(name=f"{name}_Shoulder", p=(-150, 0, 0))
+    elbow = cmds.joint(name=f"{name}_Elbow", p=(0, 0, 0))
+    wrist = cmds.joint(name=f"{name}_Wrist", p=(150, 0, 0))
+    
+    # Create volume locator at elbow
+    volume = cmds.spaceLocator(name=f"{name}_Volume")[0]
+    cmds.parent(volume, elbow)
+    cmds.setAttr(f"{volume}.translate", 0, 0, 0)
+    
+    # Settings node
+    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
+    cmds.parent(settings, root)
+    cmds.setAttr(f"{settings}.visibility", 0)
+    
+    # Add attributes
+    cmds.addAttr(settings, ln="pushRatio", at="float", dv=1.0, min=0, max=1.2, k=True)
+    cmds.addAttr(settings, ln="orientBlend", at="float", dv=0.15, min=0, max=1, k=True)
+    cmds.addAttr(settings, ln="scaleX", at="float", dv=0.65, min=0, max=1, k=True)
+    cmds.addAttr(settings, ln="radius", at="float", dv=38, min=12, max=64, k=True)
+    
+    # Angle control
+    angle_ctrl = cmds.spaceLocator(name=f"{name}_AngleCtrl")[0]
+    cmds.parent(angle_ctrl, root)
+    cmds.addAttr(angle_ctrl, ln="angle", at="float", dv=155, min=15, max=180, k=True)
+    
+    # Set up joint rotation
+    cmds.parentConstraint(angle_ctrl, elbow, mo=True, skipRotate=['x','z'])
+    
+    # Expression for push deformation
+    expr = f'''
+// Angle push deformation
+float $angle = {angle_ctrl}.angle;
+float $delta = 180 - $angle;
+float $halfRad = ($delta * 3.14159) / 360;
+
+// Bisector direction
+vector $v1 = `getAttr {shoulder}.translate` - `getAttr {elbow}.translate`;
+vector $v2 = `getAttr {wrist}.translate` - `getAttr {elbow}.translate`;
+vector $vBis = unit($v1 + $v2);
+
+// Push distance
+float $pushDist = 150 * {settings}.pushRatio * sin($halfRad);
+vector $center = `getAttr {elbow}.translate` + $vBis * $pushDist;
+
+// Orientation blend
+float $bisAngle = atan2($vBis.y, $vBis.x) + 3.14159/2;
+float $chordAngle = atan2(`getAttr {wrist}.ty` - `getAttr {shoulder}.ty`, 
+                         `getAttr {wrist}.tx` - `getAttr {shoulder}.tx`);
+float $orientAngle = $bisAngle * (1 - {settings}.orientBlend) + $chordAngle * {settings}.orientBlend;
+
+// Squash
+float $squash = 1 - 0.85 * ($delta/180) * {settings}.scaleX;
+
+// Set volume transform
+{volume}.translateX = $center.x;
+{volume}.translateY = $center.y;
+{volume}.scaleX = {settings}.radius * max(0.15, $squash) / {settings}.radius;
+{volume}.scaleY = 1;
+{volume}.rotateZ = $orientAngle * 180 / 3.14159;
+'''
+    cmds.expression(s=expr, name=f"{name}_PushExpr")
+    
+    # Group
+    cmds.select(root)
+    cmds.group(name=f"{name}_Grp")
+
+build_angle_push_rig()</pre>
+      </div>
+    </details>
+
+  <script>
+    (function(){
+      // ============================================
+      // CONSTANTS
+      // ============================================
+      const ANGLE_PUSH_CONSTANTS = {
+        ELBOW_X: 320,  // Centered in 640px width
+        ELBOW_Y: 175,
+        BONE_LENGTH: 150,
+        ANIMATION_DURATION: 7000,
+        MIN_ANGLE: 15,
+        MAX_ANGLE: 180,
+        DEFAULT_ANGLE: 155
+      };
+
+      const { ELBOW_X, ELBOW_Y, BONE_LENGTH, ANIMATION_DURATION, 
+              MIN_ANGLE, MAX_ANGLE, DEFAULT_ANGLE } = ANGLE_PUSH_CONSTANTS;
+
+      // ============================================
+      // UTILITY FUNCTIONS
+      // ============================================
+      const round = (v, n) => Number(v.toFixed(n));
+
+      function normalize(v) {
+        const len = Math.hypot(v.x, v.y) || 1;
+        return { x: v.x / len, y: v.y / len };
+      }
+
+      function getPoint(x, y) {
+        return { x, y };
+      }
+
+      // ============================================
+      // DOM REFS
+      // ============================================
+      const dom = {
+        jointAngle: document.getElementById('r2_jointAngle'),
+        pushRatio: document.getElementById('r2_pushRatio'),
+        orientBlend: document.getElementById('r2_orientBlend'),
+        scaleX: document.getElementById('r2_scaleX'),
+        radius: document.getElementById('r2_radius'),
+        jointVal: document.getElementById('r2_jointVal'),
+        pushVal: document.getElementById('r2_pushVal'),
+        blendVal: document.getElementById('r2_blendVal'),
+        scaleXVal: document.getElementById('r2_scaleXVal'),
+        radiusVal: document.getElementById('r2_radiusVal'),
+        animToggle: document.getElementById('animToggle2'),
+        boneUpper: document.getElementById('r2_boneUpper'),
+        boneForearm: document.getElementById('r2_boneForearm'),
+        chordLine: document.getElementById('r2_chordLine'),
+        bisectorAxis: document.getElementById('r2_bisectorAxis'),
+        jointShoulder: document.getElementById('r2_jointShoulder'),
+        jointElbow: document.getElementById('r2_jointElbow'),
+        jointWrist: document.getElementById('r2_jointWrist'),
+        volumeCenter: document.getElementById('r2_volumeCenter'),
+        ellipHull: document.getElementById('r2_ellipHull'),
+        axisX: document.getElementById('r2_axisX'),
+        axisY: document.getElementById('r2_axisY'),
+        copyBtn: document.getElementById('copyScriptBtn2'),
+        mayaScript: document.getElementById('mayaScript2'),
+        nodeDetails: document.getElementById('r2_node_details'),
+        graphContainer: document.getElementById('r2_graph_container'),
+        nodeCanvas: document.getElementById('r2_node_canvas'),
+        svgCanvas: document.getElementById('r2_node_svg')
+      };
+
+      const nodeGraph = CardCommon.setupNodeGraph({
+        detailsEl: dom.nodeDetails,
+        containerEl: dom.graphContainer,
+        canvasEl: dom.nodeCanvas,
+        svgEl: dom.svgCanvas,
+        enhanced: true,
+        openDelay: 100,
+        connections: [
+          { from: 'r2_p_angle_out', to: 'r2_p_push_angle', color: '#ffaa55' },
+          { from: 'r2_p_angle_out', to: 'r2_p_squash_angle', color: '#ffaa55' },
+          { from: 'r2_p_j1_out', to: 'r2_p_bis_v1', color: '#88ddff' },
+          { from: 'r2_p_j1_out', to: 'r2_p_bis_v2', color: '#88ddff' },
+          { from: 'r2_p_bis_out', to: 'r2_p_push_bis', color: '#ff88aa' },
+          { from: 'r2_p_bis_out', to: 'r2_p_orient_bis', color: '#ff88aa' },
+          { from: 'r2_p_push_out', to: 'r2_p_deform_center', color: 'var(--axis-y)' },
+          { from: 'r2_p_orient_out', to: 'r2_p_deform_orient', color: 'var(--axis-x)' },
+          { from: 'r2_p_squash_out', to: 'r2_p_deform_squash', color: 'var(--axis-y)' }
+        ]
+      });
+      CardCommon.setupCopyButton(dom.copyBtn, dom.mayaScript);
+
+      // ============================================
+      // SET LINE/ CIRCLE HELPERS
+      // ============================================
+      function setLine(id, x1, y1, x2, y2) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.setAttribute('x1', x1);
+          el.setAttribute('y1', y1);
+          el.setAttribute('x2', x2);
+          el.setAttribute('y2', y2);
+        }
+      }
+
+      function setCircle(id, x, y) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.setAttribute('cx', x);
+          el.setAttribute('cy', y);
+        }
+      }
+
+      // ============================================
+      // UPDATE FUNCTION
+      // ============================================
+      function updateAnglePush(force = false) {
+        const { jointAngle, pushRatio, orientBlend, scaleX, radius } = dom;
+        if (!jointAngle || !pushRatio || !orientBlend || !scaleX || !radius) return;
+
+        const theta = parseFloat(jointAngle.value);
+        const kPush = parseFloat(pushRatio.value);
+        const kBlend = parseFloat(orientBlend.value);
+        const kScaleX = parseFloat(scaleX.value);
+        const r0 = parseFloat(radius.value);
+
+        // Update displays
+        dom.jointVal.textContent = `${round(theta, 0)}Â°`;
+        dom.pushVal.textContent = `${round(kPush, 2)} Ã— L`;
+        dom.blendVal.textContent = kBlend.toFixed(2);
+        dom.scaleXVal.textContent = kScaleX.toFixed(2);
+        dom.radiusVal.textContent = `${round(r0, 0)}px`;
+
+        // Calculate joint positions
+        const delta = MAX_ANGLE - theta;
+        const deltaRad = delta * Math.PI / 180;
+        const halfRad = deltaRad / 2;
+
+        const J1 = getPoint(ELBOW_X, ELBOW_Y);
+        const J0 = getPoint(J1.x - BONE_LENGTH, J1.y);
+        const J2 = getPoint(
+          J1.x + BONE_LENGTH * Math.cos(deltaRad),
+          J1.y - BONE_LENGTH * Math.sin(deltaRad)
+        );
+
+        // Calculate bisector
+        const v1 = getPoint(J0.x - J1.x, J0.y - J1.y);
+        const v2 = getPoint(J2.x - J1.x, J2.y - J1.y);
+        const n1 = normalize(v1);
+        const n2 = normalize(v2);
+
+        let bx = n1.x + n2.x;
+        let by = n1.y + n2.y;
+        let blen = Math.hypot(bx, by);
+        if (blen < 0.001) {
+          bx = -n1.y;
+          by = n1.x;
+          blen = 1;
+        }
+        const vBis = getPoint(bx / blen, by / blen);
+
+        // Push
+        const Lavg = BONE_LENGTH;
+        const pushDist = Lavg * kPush * Math.sin(halfRad);
+        const C = getPoint(
+          J1.x + vBis.x * pushDist,
+          J1.y + vBis.y * pushDist
+        );
+
+        // Orientation
+        const angBis = Math.atan2(vBis.y, vBis.x) + Math.PI / 2;
+        const angChord = Math.atan2(J2.y - J0.y, J2.x - J0.x);
+        let angFinal = angBis * (1 - kBlend) + angChord * kBlend;
+
+        // Squash
+        const squash = 1 - 0.85 * (delta / MAX_ANGLE) * kScaleX;
+        const rx = r0 * Math.max(0.15, squash);
+        const ry = r0;
+
+        // Update bones
+        setLine('r2_boneUpper', J0.x, J0.y, J1.x, J1.y);
+        setLine('r2_boneForearm', J1.x, J1.y, J2.x, J2.y);
+        setLine('r2_chordLine', J0.x, J0.y, J2.x, J2.y);
+        setLine('r2_bisectorAxis', J1.x, J1.y, 
+                J1.x + vBis.x * (pushDist + ry + 30), 
+                J1.y + vBis.y * (pushDist + ry + 30));
+
+        // Update joints
+        setCircle('r2_jointShoulder', J0.x, J0.y);
+        setCircle('r2_jointElbow', J1.x, J1.y);
+        setCircle('r2_jointWrist', J2.x, J2.y);
+        setCircle('r2_volumeCenter', C.x, C.y);
+
+        // Update ellipse
+        const ell = dom.ellipHull;
+        ell.setAttribute('cx', C.x);
+        ell.setAttribute('cy', C.y);
+        ell.setAttribute('rx', rx);
+        ell.setAttribute('ry', ry);
+        ell.setAttribute('transform', `rotate(${angFinal * 180 / Math.PI} ${C.x} ${C.y})`);
+
+        // Update axes
+        const axLen = 22;
+        setLine('r2_axisX', C.x, C.y, 
+                C.x + Math.cos(angFinal) * (rx + axLen), 
+                C.y + Math.sin(angFinal) * (rx + axLen));
+        setLine('r2_axisY', C.x, C.y, 
+                C.x + Math.cos(angFinal + Math.PI / 2) * (ry + axLen), 
+                C.y + Math.sin(angFinal + Math.PI / 2) * (ry + axLen));
+      }
+
+      // ============================================
+      // ANIMATION LOOP
+      // ============================================
+      let animationId = null;
+      let isAnimating = true;
+
+      function tick(timestamp) {
+        const { animToggle, jointAngle } = dom;
+        if (!animToggle || !jointAngle) {
+          animationId = requestAnimationFrame(tick);
+          return;
+        }
+
+        if (animToggle.checked && isAnimating) {
+          const phase = (timestamp % ANIMATION_DURATION) / ANIMATION_DURATION;
+          const eased = (1 - Math.cos(phase * 2 * Math.PI)) / 2;
+          jointAngle.value = (MAX_ANGLE - (MAX_ANGLE - MIN_ANGLE) * eased).toFixed(0);
+          updateAnglePush(false);
+        }
+
+        animationId = requestAnimationFrame(tick);
+      }
+
+      function stopAnimation() {
+        isAnimating = false;
+      }
+
+      function startAnimation() {
+        isAnimating = true;
+      }
+
+      // ============================================
+      // EVENT SETUP
+      // ============================================
+      function setupEvents() {
+        const { jointAngle, pushRatio, orientBlend, scaleX, radius, animToggle } = dom;
+
+        const sliderIds = ['jointAngle', 'pushRatio', 'orientBlend', 'scaleX', 'radius'];
+        sliderIds.forEach(id => {
+          const el = document.getElementById(`r2_${id}`);
+          if (el) {
+            el.addEventListener('input', () => updateAnglePush(true), { passive: true });
+          }
+        });
+
+        if (jointAngle && animToggle) {
+          jointAngle.addEventListener('pointerdown', () => {
+            animToggle.checked = false;
+            startAnimation();
+          }, { passive: true });
+        }
+
+        if (animToggle) {
+          animToggle.addEventListener('change', function() {
+            if (this.checked) {
+              startAnimation();
+            } else {
+              stopAnimation();
+            }
+          }, { passive: true });
+        }
+
+        updateAnglePush(true);
+      }
+
+      // ============================================
+      // INITIALIZATION
+      // ============================================
+      function init() {
+        setupEvents();
+        animationId = requestAnimationFrame(tick);
+      }
+
+      window.addEventListener('beforeunload', function() {
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+        }
+        nodeGraph.disconnect();
+      }, { passive: true });
+
+      init();
+
+    })();
+  </script>
+</div>
+</body>
+</html>

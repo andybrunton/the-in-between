@@ -1,0 +1,264 @@
+/* Shared card styles — copy blocks, node graphs */
+
+.code-block-wrapper {
+  position: relative;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #b0b0b0;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: 'Space Grotesk', sans-serif;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.copy-btn.copied {
+  background: rgba(0, 200, 100, 0.3);
+  border-color: rgba(0, 200, 100, 0.5);
+  color: #8f8;
+}
+
+/* Node graph — base */
+.m-graph-view {
+  position: relative;
+  background: #2b2b2c;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  height: 240px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-top: 8px;
+  user-select: none;
+}
+
+.m-graph-view--tall {
+  background: #1a1a1b;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  height: 340px;
+  overflow: auto;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.3);
+}
+
+.m-graph-view--enhanced {
+  background: #1a1a1b;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  height: 260px;
+  overflow: auto;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.3);
+}
+
+.m-canvas {
+  position: relative;
+  width: 780px;
+  height: 100%;
+}
+
+.m-graph-view--tall .m-canvas {
+  width: 960px;
+  min-height: 340px;
+}
+
+.m-graph-view--enhanced .m-canvas {
+  min-height: 260px;
+}
+
+.m-svg-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.m-node {
+  position: absolute;
+  background: #333438;
+  border: 1px solid #1a1a1c;
+  border-radius: 5px;
+  width: 120px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  font-size: 9.5px;
+  font-family: 'Space Grotesk', sans-serif;
+  z-index: 2;
+}
+
+.m-graph-view--tall .m-node,
+.m-graph-view--enhanced .m-node {
+  background: #2a2a2c;
+  border-radius: 6px;
+  min-width: 100px;
+  width: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 0.2s ease;
+}
+
+.m-graph-view--tall .m-node:hover,
+.m-graph-view--enhanced .m-node:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.m-header {
+  background: #465568;
+  padding: 4px 8px;
+  border-radius: 4px 4px 0 0;
+  font-weight: 700;
+  text-align: center;
+  color: #eae9e4;
+  border-bottom: 1px solid #1a1a1c;
+  letter-spacing: 0.02em;
+}
+
+.m-graph-view--tall .m-header,
+.m-graph-view--enhanced .m-header {
+  padding: 5px 10px;
+  border-radius: 5px 5px 0 0;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.m-header.util { background: #685a46; }
+.m-header.physics { background: #5a4a5a; }
+.m-header.default { background: #3a4a5a; }
+.m-header.wave { background: #4a3a6a; }
+.m-header.boundary { background: #5a4a3a; }
+.m-header.input { background: #3a5a4a; }
+.m-header.output { background: #5a3a4a; }
+.m-header.push { background: #4a5a6a; }
+.m-graph-view--wide {
+  height: 320px;
+}
+
+.m-graph-view--wide .m-canvas {
+  width: 920px;
+  min-height: 320px;
+}
+
+.m-header.volume { background: #3a5a3a; }
+
+
+.m-body { padding: 4px 0; }
+
+.m-row {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  padding: 3px 8px;
+  align-items: center;
+  min-height: 22px;
+}
+
+.m-graph-view--tall .m-row,
+.m-graph-view--enhanced .m-row {
+  padding: 4px 10px;
+}
+
+.m-graph-view--tall .m-row:hover,
+.m-graph-view--enhanced .m-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.m-label {
+  color: #b0b0b0;
+  font-size: 9px;
+  padding-right: 4px;
+}
+
+.m-label.highlight-x { color: var(--axis-x); }
+.m-label.highlight-y { color: var(--axis-y); }
+.m-label.highlight-z { color: var(--axis-z); }
+
+.m-port {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #555;
+  border: 1px solid #111;
+  z-index: 2;
+}
+
+.m-graph-view--tall .m-port,
+.m-graph-view--enhanced .m-port {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #1a1a1c;
+  z-index: 3;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.m-graph-view--tall .m-port:hover,
+.m-graph-view--enhanced .m-port:hover {
+  transform: translateY(-50%) scale(1.3);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
+}
+
+.m-port.in { left: -4px; }
+.m-port.out { right: -4px; }
+
+.m-graph-view--tall .m-port.in,
+.m-graph-view--enhanced .m-port.in { left: -5px; }
+
+.m-graph-view--tall .m-port.out,
+.m-graph-view--enhanced .m-port.out { right: -5px; }
+
+.m-port.float { background: var(--axis-y); }
+.m-port.vec3 { background: var(--axis-z); }
+.m-port.vec2 { background: var(--axis-z); }
+.m-port.angle { background: #ffaa55; }
+.m-port.rgb { background: var(--cape-curve); }
+.m-port.wave { background: var(--cape-curve); box-shadow: 0 0 8px rgba(181, 108, 255, 0.2); }
+.m-port.harmonic1 { background: #ff8844; box-shadow: 0 0 8px rgba(255, 136, 68, 0.3); }
+.m-port.harmonic2 { background: #44ff88; box-shadow: 0 0 8px rgba(68, 255, 136, 0.3); }
+.m-port.harmonic3 { background: #4488ff; box-shadow: 0 0 8px rgba(68, 136, 255, 0.3); }
+
+.m-graph-view--tall .m-port.float,
+.m-graph-view--enhanced .m-port.float {
+  box-shadow: 0 0 8px rgba(0, 200, 100, 0.2);
+}
+
+.m-noodle {
+  fill: none;
+  stroke-width: 2.5;
+  opacity: 0.7;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.3));
+  transition: opacity 0.2s ease;
+}
+
+.m-noodle-glow {
+  fill: none;
+  stroke-width: 6;
+  opacity: 0.12;
+}
+
+.cp-label {
+  font-size: 8px;
+  fill: rgba(255, 255, 255, 0.6);
+  font-family: monospace;
+  pointer-events: none;
+}

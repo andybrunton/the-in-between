@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div class="card-stage-content">
+  <svg viewBox="0 0 640 230" id="bowSvg">
+    <line x1="40" y1="185" x2="600" y2="185" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+    <line id="r5_chordLine" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <line id="r5_boneLine" stroke="var(--bone)" stroke-width="6" stroke-linecap="round"/>
+    <line id="r5_handleLineA" stroke="rgba(255, 115, 250, 0.35)" stroke-width="1" stroke-dasharray="2 2"/>
+    <line id="r5_handleLineB" stroke="rgba(255, 115, 250, 0.35)" stroke-width="1" stroke-dasharray="2 2"/>
+    <path id="r5_bowFill" fill="rgba(255, 115, 250, 0.15)" stroke="none"/>
+    <path id="r5_bowCurve" fill="none" stroke="var(--bow-curve)" stroke-width="3.5" stroke-linecap="round"/>
+    <circle id="r5_jointStart" r="6" fill="var(--joint)"/>
+    <circle id="r5_jointEnd" r="6" fill="var(--joint)"/>
+    <circle id="r5_handleA" r="4" fill="var(--bg-panel)" stroke="var(--bow-curve)" stroke-width="1.5"/>
+    <circle id="r5_handleB" r="4" fill="var(--bg-panel)" stroke="var(--bow-curve)" stroke-width="1.5"/>
+    <circle id="r5_apexHandle" r="4.5" fill="var(--bg-panel)" stroke="var(--bow-curve)" stroke-width="2"/>
+  </svg>
+</div>
+
+<div class="card-controls-content">
+
+  <div class="recipe-card">
+    <p class="recipe-one-liner">A symmetric bow curve between two endpoints — bulge grows as span compresses, shaped by eased Bezier tangents.</p>
+    <dl class="recipe-io">
+      <div class="recipe-io-row"><dt>Inputs</dt><dd>Start &amp; end positions, rest / min span, bulge weight, tangent weight, bend angle, easing mode</dd></div>
+      <div class="recipe-io-row"><dt>Output</dt><dd>Curve path (Bezier CVs or sampled points) — same math in any DCC or engine</dd></div>
+    </dl>
+    <p class="recipe-intuition">Compression drives bulge height through an easing curve so the bow doesn't pop. Tangent weight sets handle span; bend angle projects height via cosine for out-of-plane twist. The visible apex comes from de Casteljau midpoints of a cubic Bezier.</p>
+    <details class="formula-box recipe-core">
+      <summary>Pseudocode</summary>
+      <div class="formula-body mono"><pre>L = distance(start, end)
+t = (L_rest - L) / (L_rest - L_min)
+h = weight * ease(t, mode) * maxHeight * cos(bendAngle)
+half = L / 2
+tan = half * tangentWeight
+P0, P3 = start, end
+P1 = start + tangent_dir * tan + normal * h
+P2 = end   - tangent_dir * tan + normal * h
+curve = cubic_bezier(P0, P1, P2, P3)  // or de_casteljau_apex(P0..P3)</pre></div>
+    </details>
+  </div>
+
+  <div class="axis-title">Explore</div>
+  <div class="controls">
+    <div class="slider-card">
+      <div class="slider-head"><label>End Joint Separation (Distance)</label><span class="slider-val mono" id="r5_distVal">420px</span></div>
+      <input type="range" id="r5_dist" min="150" max="420" step="2" value="420" aria-label="End joint separation distance">
+    </div>
+    <label class="toggle-row"><input type="checkbox" id="animToggle5" checked> Animate Compression</label>
+
+    <div class="slider-card">
+      <div class="slider-head"><label>Easing Mode</label></div>
+      <select id="r5_interpMode" class="rig-select" aria-label="Easing mode">
+        <option value="smooth" selected>Smooth</option>
+        <option value="linear">Linear</option>
+        <option value="slow">Ease In</option>
+        <option value="fast">Ease Out</option>
+      </select>
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Bulge Amount</label><span class="slider-val mono" id="r5_weightVal">1.00</span></div>
+      <input type="range" id="r5_weight" min="0.0" max="2.0" step="0.05" value="1.00" aria-label="Bulge amount">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Tangent Angle</label><span class="slider-val mono" id="r5_tangentVal">0.55</span></div>
+      <input type="range" id="r5_tangentWeight" min="0.0" max="1.0" step="0.05" value="0.55" aria-label="Tangent angle">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Bend Angle</label><span class="slider-val mono" id="r5_bendVal">0°</span></div>
+      <input type="range" id="r5_bendAngle" min="0" max="360" step="1" value="0" aria-label="Bend twist angle">
+    </div>
+  </div>
+
+    <details class="formula-box">
+      <summary>Full formula breakdown</summary>
+      <div class="formula-body mono">
+        <pre>
+1. Compression & Bulge (Y-Axis):
+   t_norm = (L_rest - L) / (L_rest - L_min)
+   t_eased = evaluate_easing(t_norm, mode)
+   h_eff = weight * t_eased * max_height * cos(bendAngle)
+
+2. Spans & Tangents (X-Axis):
+   halfSpan = L / 2
+   tangentSpan = halfSpan * tangentWeight
+
+3. Base Bezier Points (P0-P3):
+   P0 (Start Node) = (0, 0)
+   P1 (Tangent A)  = (tangentSpan, h_eff)
+   P2 (Tangent B)  = (L - tangentSpan, h_eff)
+   P3 (End Node)   = (L, 0)
+
+4. SVG Curve Interpolation (Midpoints):
+   M01 = average(P0, P1)
+   M12 = average(P1, P2)
+   M23 = average(P2, P3)
+   M012 = average(M01, M12)
+   M123 = average(M12, M23)
+   Apex = average(M012, M123)
+        </pre>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r5_node_details">
+      <summary>Node graph (Maya wiring)</summary>
+      <div class="formula-body">
+        <div class="m-graph-view" id="r5_graph_container">
+          <div class="m-canvas" id="r5_node_canvas">
+            <svg class="m-svg-layer" id="r5_node_svg"></svg>
+            
+            <div class="m-node" style="left: 20px; top: 30px;">
+              <div class="m-header">StartLoc</div>
+              <div class="m-body">
+                <div class="m-row"><span class="m-label">worldPos</span><div class="m-port out vec3" id="r5_p_sl_out"></div></div>
+              </div>
+            </div>
+            <div class="m-node" style="left: 20px; top: 120px;">
+              <div class="m-header">EndLoc</div>
+              <div class="m-body">
+                <div class="m-row"><span class="m-label">worldPos</span><div class="m-port out vec3" id="r5_p_el_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 175px; top: 75px;">
+              <div class="m-header util">distanceBetween</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in vec3" id="r5_p_dist_p1"></div><span class="m-label">point1</span></div>
+                <div class="m-row"><div class="m-port in vec3" id="r5_p_dist_p2"></div><span class="m-label">point2</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">distance</span><div class="m-port out float" id="r5_p_dist_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 330px; top: 30px;">
+              <div class="m-header util">setRange</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r5_p_remap_in"></div><span class="m-label">valueX</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">outValueX</span><div class="m-port out float" id="r5_p_remap_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 330px; top: 120px;">
+              <div class="m-header util">L_Fracs</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r5_p_lfracs_in"></div><span class="m-label">input1X</span></div>
+                <div class="m-row" style="margin-top: 8px;"><span class="m-label" style="text-align:right; width:100%;">outputX</span><div class="m-port out float" id="r5_p_lfracs_out"></div></div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 485px; top: 75px;">
+              <div class="m-header">CrvShape</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r5_p_crv_in1"></div><span class="m-label">cvY</span></div>
+                <div class="m-row"><div class="m-port in float" id="r5_p_crv_in2"></div><span class="m-label">cvX</span></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="formula-box">
+      <summary>Maya adapter script</summary>
+      <div class="formula-body mono code-block-wrapper">
+        <button class="copy-btn" id="copyScriptBtn" aria-label="Copy Maya script to clipboard">Copy</button>
+<pre id="mayaScript">import maya.cmds as cmds
+import math
+
+def build_bounded_bow_curve():
+    sel = cmds.ls(selection=True)
+    if not sel or len(sel) < 2:
+        cmds.warning("Please select at least two objects to act as Start and End.")
+        return
+        
+    start_obj = sel[0]
+    end_obj = sel[1]
+    name = "BoundedBow"
+    
+    if cmds.objExists(f"{name}_Grp"):
+        cmds.delete(f"{name}_Grp")
+        
+    # 1. Hierarchy Setup & Bend Angle Roll Group
+    root = cmds.group(em=True, name=f"{name}_Grp")
+    space_grp = cmds.group(em=True, name=f"{name}_Space")
+    orient_grp = cmds.group(em=True, name=f"{name}_Orient") 
+    
+    cmds.parent(orient_grp, space_grp)
+    cmds.parent(space_grp, root)
+    
+    cmds.matchTransform(space_grp, start_obj, pos=True, rot=False)
+    cmds.pointConstraint(start_obj, space_grp, maintainOffset=False)
+    cmds.aimConstraint(end_obj, space_grp, aimVector=(1, 0, 0), upVector=(0, 1, 0), 
+                       worldUpType="objectrotation", worldUpObject=start_obj, worldUpVector=(0, 1, 0))
+    
+    pos1 = cmds.xform(start_obj, q=True, ws=True, t=True)
+    pos2 = cmds.xform(end_obj, q=True, ws=True, t=True)
+    rest_dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(pos1, pos2)))
+    
+    # 2. Settings Node Setup
+    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
+    cmds.parent(settings, root)
+    cmds.xform(settings, ws=True, t=((pos1[0]+pos2[0])/2, (pos1[1]+pos2[1])/2, (pos1[2]+pos2[2])/2))
+    cmds.setAttr(f"{settings}.visibility", 0)
+    
+    cmds.addAttr(settings, ln="weight", at="float", dv=1.0, k=True)
+    cmds.addAttr(settings, ln="tangentWeight", at="float", dv=0.55, k=True, min=0, max=1)
+    cmds.addAttr(settings, ln="restLength", at="float", dv=rest_dist, k=True)
+    cmds.addAttr(settings, ln="bendAngle", at="float", dv=0.0, k=True)
+    
+    cmds.connectAttr(f"{settings}.bendAngle", f"{orient_grp}.rotateX")
+    
+    # 3. Curve Generation
+    p_init = [(rest_dist * (i / 6.0), 0, 0) for i in range(7)]
+    curve = cmds.curve(d=3, p=p_init, k=[0,0,0, 1,1,1, 2,2,2], name=f"{name}_Crv")
+    
+    cmds.parent(curve, orient_grp)
+    for attr in ['tx', 'ty', 'tz', 'rx', 'ry', 'rz']:
+        cmds.setAttr(f"{curve}.{attr}", 0)
+    cmds.setAttr(f"{curve}.inheritsTransform", 1)
+    
+    # 4. Base Distance & Compression Math
+    dist_node = cmds.createNode('distanceBetween', name=f"{name}_Dist")
+    decomp1 = cmds.createNode('decomposeMatrix', name=f"{name}_StartDecomp")
+    decomp2 = cmds.createNode('decomposeMatrix', name=f"{name}_EndDecomp")
+    
+    cmds.connectAttr(f"{start_obj}.worldMatrix[0]", f"{decomp1}.inputMatrix")
+    cmds.connectAttr(f"{end_obj}.worldMatrix[0]", f"{decomp2}.inputMatrix")
+    cmds.connectAttr(f"{decomp1}.outputTranslate", f"{dist_node}.point1")
+    cmds.connectAttr(f"{decomp2}.outputTranslate", f"{dist_node}.point2")
+    
+    remap = cmds.createNode('setRange', name=f"{name}_Remap")
+    cmds.setAttr(f"{remap}.oldMinX", rest_dist * 0.35) 
+    cmds.connectAttr(f"{settings}.restLength", f"{remap}.oldMaxX")
+    cmds.setAttr(f"{remap}.minX", 1.0)
+    cmds.setAttr(f"{remap}.maxX", 0.0)
+    cmds.connectAttr(f"{dist_node}.distance", f"{remap}.valueX")
+    
+    # 5. Cleaned Up Math Nodes (No Skew)
+    mult_L = cmds.createNode('multiplyDivide', name=f"{name}_L_Fracs")
+    cmds.connectAttr(f"{dist_node}.distance", f"{mult_L}.input1X")
+    cmds.connectAttr(f"{dist_node}.distance", f"{mult_L}.input1Y")
+    cmds.connectAttr(f"{dist_node}.distance", f"{mult_L}.input1Z")
+    cmds.setAttr(f"{mult_L}.input2X", 0.5)
+    cmds.setAttr(f"{mult_L}.input2Y", 0.25)
+    cmds.setAttr(f"{mult_L}.input2Z", 0.75)
+    
+    # Calculate Base Tangent Offset (T)
+    mult_params = cmds.createNode('multiplyDivide', name=f"{name}_TangentScale")
+    cmds.connectAttr(f"{settings}.tangentWeight", f"{mult_params}.input1X")
+    cmds.connectAttr(f"{mult_L}.outputX", f"{mult_params}.input2X") 
+    
+    mult_T = cmds.createNode('multiplyDivide', name=f"{name}_T_Fracs")
+    cmds.connectAttr(f"{mult_params}.outputX", f"{mult_T}.input1X")
+    cmds.connectAttr(f"{mult_params}.outputX", f"{mult_T}.input1Y")
+    cmds.connectAttr(f"{mult_params}.outputX", f"{mult_T}.input1Z")
+    cmds.setAttr(f"{mult_T}.input2X", 0.5)
+    cmds.setAttr(f"{mult_T}.input2Y", 0.25)
+    cmds.setAttr(f"{mult_T}.input2Z", -0.25) 
+    
+    # Y-Axis Bulge Math
+    mult_hEff = cmds.createNode('multiplyDivide', name=f"{name}_hEff_Base")
+    cmds.connectAttr(f"{remap}.outValueX", f"{mult_hEff}.input1X")
+    cmds.connectAttr(f"{settings}.weight", f"{mult_hEff}.input2X")
+    
+    mult_hEff_final = cmds.createNode('multiplyDivide', name=f"{name}_hEff_Final")
+    cmds.setAttr(f"{mult_hEff_final}.input2X", rest_dist * 0.42) 
+    cmds.connectAttr(f"{mult_hEff}.outputX", f"{mult_hEff_final}.input1X")
+    
+    mult_hEff_fracs = cmds.createNode('multiplyDivide', name=f"{name}_hEff_Fracs")
+    cmds.connectAttr(f"{mult_hEff_final}.outputX", f"{mult_hEff_fracs}.input1X")
+    cmds.connectAttr(f"{mult_hEff_final}.outputX", f"{mult_hEff_fracs}.input1Y")
+    cmds.setAttr(f"{mult_hEff_fracs}.input2X", 0.5)
+    cmds.setAttr(f"{mult_hEff_fracs}.input2Y", 0.75)
+    
+    # Simplified CV Coordinate Sums
+    def make_pma(name, inputs, op=1):
+        pma = cmds.createNode('plusMinusAverage', name=name)
+        cmds.setAttr(f"{pma}.operation", op)
+        for i, plug in enumerate(inputs):
+            cmds.connectAttr(plug, f"{pma}.input1D[{i}]")
+        return f"{pma}.output1D"
+        
+    cv2_x = make_pma(f"{name}_CV2_X", [f"{mult_L}.outputY", f"{mult_T}.outputY"])
+    cv4_x = make_pma(f"{name}_CV4_X", [f"{mult_L}.outputZ", f"{mult_T}.outputZ"])
+    cv5_x = make_pma(f"{name}_CV5_X", [f"{dist_node}.distance", f"{mult_T}.outputX"], op=2)
+    
+    # 6. Wire to Curve Control Points
+    cvs = f"{curve}.controlPoints"
+    
+    cmds.connectAttr(f"{mult_T}.outputX", f"{cvs}[1].xValue")
+    cmds.connectAttr(f"{mult_hEff_fracs}.outputX", f"{cvs}[1].yValue")
+    
+    cmds.connectAttr(cv2_x, f"{cvs}[2].xValue")
+    cmds.connectAttr(f"{mult_hEff_fracs}.outputY", f"{cvs}[2].yValue")
+    
+    # CV 3 (Peak) plugs directly into L_half now, saving a PMA node
+    cmds.connectAttr(f"{mult_L}.outputX", f"{cvs}[3].xValue")
+    cmds.connectAttr(f"{mult_hEff_fracs}.outputY", f"{cvs}[3].yValue")
+    
+    cmds.connectAttr(cv4_x, f"{cvs}[4].xValue")
+    cmds.connectAttr(f"{mult_hEff_fracs}.outputY", f"{cvs}[4].yValue")
+    
+    cmds.connectAttr(cv5_x, f"{cvs}[5].xValue")
+    cmds.connectAttr(f"{mult_hEff_fracs}.outputX", f"{cvs}[5].yValue")
+    
+    cmds.connectAttr(f"{dist_node}.distance", f"{cvs}[6].xValue")
+    
+    cmds.select(settings)
+    print(f"Bounded Bow Curve rigged between {start_obj} and {end_obj}")
+
+build_bounded_bow_curve()</pre>
+      </div>
+    </details>
+
+  <script>
+    (function(){
+      // ============================================
+      // CONSTANTS
+      // ============================================
+      const BOW_CONSTANTS = {
+        CY: 185,
+        L_REST: 420,
+        L_MIN: 150,
+        MAX_HEIGHT: 180,
+        CX_CENTER: 320,
+        ANIMATION_DURATION: 7000
+      };
+
+      const { CY, L_REST, L_MIN, MAX_HEIGHT, CX_CENTER, ANIMATION_DURATION } = BOW_CONSTANTS;
+
+      // ============================================
+      // UTILITY FUNCTIONS
+      // ============================================
+      const round = (v, n) => Number(v.toFixed(n));
+
+      const getEasedValue = (t, mode) => {
+        switch(mode) {
+          case 'linear': return t;
+          case 'slow': return t * t;
+          case 'fast': return 1.0 - Math.pow(1.0 - t, 2);
+          default: return t * t * (3.0 - 2.0 * t); // smoothstep
+        }
+      };
+
+      const getControlPoint = (x, y) => ({ x, y });
+
+      // ============================================
+      // DOM REFS
+      // ============================================
+      const dom = {
+        dist: document.getElementById('r5_dist'),
+        mode: document.getElementById('r5_interpMode'),
+        tangent: document.getElementById('r5_tangentWeight'),
+        weight: document.getElementById('r5_weight'),
+        bend: document.getElementById('r5_bendAngle'),
+        distVal: document.getElementById('r5_distVal'),
+        tangentVal: document.getElementById('r5_tangentVal'),
+        weightVal: document.getElementById('r5_weightVal'),
+        bendVal: document.getElementById('r5_bendVal'),
+        animToggle: document.getElementById('animToggle5'),
+        boneLine: document.getElementById('r5_boneLine'),
+        chordLine: document.getElementById('r5_chordLine'),
+        jointStart: document.getElementById('r5_jointStart'),
+        jointEnd: document.getElementById('r5_jointEnd'),
+        handleLineA: document.getElementById('r5_handleLineA'),
+        handleLineB: document.getElementById('r5_handleLineB'),
+        handleA: document.getElementById('r5_handleA'),
+        handleB: document.getElementById('r5_handleB'),
+        apexHandle: document.getElementById('r5_apexHandle'),
+        bowCurve: document.getElementById('r5_bowCurve'),
+        bowFill: document.getElementById('r5_bowFill'),
+        nodeDetails: document.getElementById('r5_node_details'),
+        graphContainer: document.getElementById('r5_graph_container'),
+        nodeCanvas: document.getElementById('r5_node_canvas'),
+        svgCanvas: document.getElementById('r5_node_svg'),
+        copyBtn: document.getElementById('copyScriptBtn'),
+        mayaScript: document.getElementById('mayaScript')
+      };
+
+      // ============================================
+      // BOW UPDATE FUNCTION
+      // ============================================
+      function updateBow(force = false) {
+        const { dist, mode, tangent, weight, bend } = dom;
+        if (!dist || !mode || !tangent || !weight || !bend) return;
+
+        const d = parseFloat(dist.value);
+        const interpMode = mode.value;
+        const kTangent = parseFloat(tangent.value);
+        const w = parseFloat(weight.value);
+        const bendDeg = parseFloat(bend.value);
+        const bendRad = bendDeg * (Math.PI / 180);
+
+        // Update value displays
+        dom.distVal.textContent = `${round(d, 0)}px`;
+        dom.tangentVal.textContent = round(kTangent, 2);
+        dom.weightVal.textContent = round(w, 2);
+        dom.bendVal.textContent = `${round(bendDeg, 0)}°`;
+
+        // Calculate bow geometry
+        const halfSpan = d / 2;
+        const jAx = CX_CENTER - halfSpan;
+        const jBx = CX_CENTER + halfSpan;
+        const tComp = Math.max(0, Math.min(1, (L_REST - d) / (L_REST - L_MIN)));
+        const tEased = getEasedValue(tComp, interpMode);
+        
+        // Apply Bend Projection (Cos) to simulate 3D rotation in 2D Space
+        const hEff_base = w * tEased * MAX_HEIGHT;
+        const hEff = hEff_base * Math.cos(bendRad);
+
+        const P0 = getControlPoint(jAx, CY);
+        const P3 = getControlPoint(jBx, CY);
+        const tangentSpan = halfSpan * kTangent;
+        const P1 = getControlPoint(jAx + tangentSpan, CY - hEff);
+        const P2 = getControlPoint(jBx - tangentSpan, CY - hEff);
+
+        // Calculate midpoints for Symmetrical Bezier
+        const M01 = getControlPoint((P0.x + P1.x) / 2, (P0.y + P1.y) / 2);
+        const M12 = getControlPoint((P1.x + P2.x) / 2, (P1.y + P2.y) / 2);
+        const M23 = getControlPoint((P2.x + P3.x) / 2, (P2.y + P3.y) / 2);
+        const M012 = getControlPoint((M01.x + M12.x) / 2, (M01.y + M12.y) / 2);
+        const M123 = getControlPoint((M12.x + M23.x) / 2, (M12.y + M23.y) / 2);
+        const Apex = getControlPoint((M012.x + M123.x) / 2, (M012.y + M123.y) / 2);
+
+        // Update DOM elements
+        dom.boneLine.setAttribute('x1', jAx);
+        dom.boneLine.setAttribute('y1', CY);
+        dom.boneLine.setAttribute('x2', jBx);
+        dom.boneLine.setAttribute('y2', CY);
+
+        dom.jointStart.setAttribute('cx', jAx);
+        dom.jointStart.setAttribute('cy', CY);
+        dom.jointEnd.setAttribute('cx', jBx);
+        dom.jointEnd.setAttribute('cy', CY);
+
+        dom.chordLine.setAttribute('x1', jAx);
+        dom.chordLine.setAttribute('y1', CY);
+        dom.chordLine.setAttribute('x2', jBx);
+        dom.chordLine.setAttribute('y2', CY);
+
+        dom.handleLineA.setAttribute('x1', jAx);
+        dom.handleLineA.setAttribute('y1', CY);
+        dom.handleLineA.setAttribute('x2', P1.x);
+        dom.handleLineA.setAttribute('y2', P1.y);
+
+        dom.handleLineB.setAttribute('x1', jBx);
+        dom.handleLineB.setAttribute('y1', CY);
+        dom.handleLineB.setAttribute('x2', P2.x);
+        dom.handleLineB.setAttribute('y2', P2.y);
+
+        dom.handleA.setAttribute('cx', P1.x);
+        dom.handleA.setAttribute('cy', P1.y);
+        dom.handleB.setAttribute('cx', P2.x);
+        dom.handleB.setAttribute('cy', P2.y);
+        dom.apexHandle.setAttribute('cx', Apex.x);
+        dom.apexHandle.setAttribute('cy', Apex.y);
+
+        const pathData = `M ${P0.x} ${P0.y} C ${M01.x} ${M01.y}, ${M012.x} ${M012.y}, ${Apex.x} ${Apex.y} C ${M123.x} ${M123.y}, ${M23.x} ${M23.y}, ${P3.x} ${P3.y}`;
+        const fillData = `${pathData} L ${P3.x} ${CY} L ${P0.x} ${CY} Z`;
+
+        dom.bowCurve.setAttribute('d', pathData);
+        dom.bowFill.setAttribute('d', fillData);
+      }
+
+      const nodeGraph = CardCommon.setupNodeGraph({
+        detailsEl: dom.nodeDetails,
+        containerEl: dom.graphContainer,
+        canvasEl: dom.nodeCanvas,
+        svgEl: dom.svgCanvas,
+        connections: [
+          ['r5_p_sl_out', 'r5_p_dist_p1', 'var(--axis-z)'],
+          ['r5_p_el_out', 'r5_p_dist_p2', 'var(--axis-z)'],
+          ['r5_p_dist_out', 'r5_p_remap_in', 'var(--axis-y)'],
+          ['r5_p_dist_out', 'r5_p_lfracs_in', 'var(--axis-y)'],
+          ['r5_p_remap_out', 'r5_p_crv_in1', 'var(--axis-y)'],
+          ['r5_p_lfracs_out', 'r5_p_crv_in2', 'var(--axis-y)']
+        ]
+      });
+      CardCommon.setupCopyButton(dom.copyBtn, dom.mayaScript);
+
+      // ============================================
+      // ANIMATION LOOP
+      // ============================================
+      let animationId = null;
+      let isAnimating = true;
+
+      function tick(timestamp) {
+        const { animToggle, dist } = dom;
+        if (!animToggle || !dist) {
+          animationId = requestAnimationFrame(tick);
+          return;
+        }
+
+        if (animToggle.checked && isAnimating) {
+          const phase = (timestamp % ANIMATION_DURATION) / ANIMATION_DURATION;
+          if (!isNaN(phase)) {
+            const eased = (1 - Math.cos(phase * 2 * Math.PI)) / 2;
+            dist.value = (L_REST - (L_REST - L_MIN) * eased).toFixed(0);
+            updateBow(false);
+          }
+        }
+
+        animationId = requestAnimationFrame(tick);
+      }
+
+      function stopAnimation() { isAnimating = false; }
+      function startAnimation() { isAnimating = true; }
+
+      // ============================================
+      // EVENT SETUP
+      // ============================================
+      function setupEvents() {
+        const { dist, mode, tangent, weight, bend, animToggle } = dom;
+
+        // Bind directly to the DOM elements we already selected
+        const controls = [dist, mode, tangent, weight, bend];
+        
+        controls.forEach(el => {
+          if (el) {
+            el.addEventListener('input', () => updateBow(true));
+            
+            // Special handling for the distance slider to stop animation when grabbed
+            if (el === dist) {
+              el.addEventListener('pointerdown', () => {
+                if (animToggle) animToggle.checked = false;
+                startAnimation();
+              }, { passive: true });
+            }
+          }
+        });
+
+        if (animToggle) {
+          animToggle.addEventListener('change', function() {
+            if (this.checked) {
+              startAnimation();
+            } else {
+              stopAnimation();
+            }
+          }, { passive: true });
+        }
+
+        updateBow(true);
+      }
+
+      // ============================================
+      // INITIALIZATION
+      // ============================================
+      function init() {
+        setupEvents();
+        animationId = requestAnimationFrame(tick);
+      }
+
+      window.addEventListener('beforeunload', function() {
+        if (animationId) cancelAnimationFrame(animationId);
+        nodeGraph.disconnect();
+      }, { passive: true });
+
+      init();
+    })();
+  </script>
+</div>
+</body>
+</html>

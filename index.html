@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#121316">
+  <title>The In-Between: Rigging in-between things, with maths</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="cards-common.css">
+  <style>
+    :root {
+      --bg-viewport: #121316;
+      --bg-panel: #1a1b1f;
+      --bg-raise: #24252a;
+      --text: #eae9e4;
+      --text-dim: #918f89;
+      --border: rgba(255,255,255,0.08);
+      --joint: #ff9a44;
+      --bone: #8b8a85;
+      --muscle-curve: #ffb443;
+      --vol-curve: #8fd457;
+      --push-curve: #57d1ff;
+      --cape-curve: #b56cff;
+      --wrinkle-curve: #ff4a5a;
+      --bow-curve: #ff73fa;
+      --axis-x: #ff5f5f;
+      --axis-y: #8fd457;
+      --axis-z: #57d1ff;
+      --chord: rgba(87,209,255,0.45);
+      --bisector: #f5d142;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      background: var(--bg-viewport);
+      color: var(--text);
+      font-family: 'Space Grotesk', sans-serif;
+      padding: 0 0 30px;
+      overflow-x: hidden;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(18, 19, 22, 0.9);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px 12px;
+    }
+    .hero-title { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+    .hero-sub { font-size: 12px; color: var(--text); line-height: 1.4; }
+    .hero-intro {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      line-height: 1.55;
+      margin-top: 8px;
+      max-width: 42em;
+    }
+
+    .grid-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      padding: 12px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .grid-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .grid-card:active {
+      transform: scale(0.97);
+      border-color: rgba(255,255,255,0.25);
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .card-title {
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    
+    .card-stage {
+      background: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px) 0 0/10px 10px, var(--bg-raise);
+      border-radius: 8px;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+    }
+    .card-stage svg { width: 100%; height: 100%; display: block; }
+
+    .card-0 { --accent: var(--muscle-curve); }
+    .card-1 { --accent: var(--vol-curve); }
+    .card-2 { --accent: var(--push-curve); }
+    .card-3 { --accent: var(--cape-curve); }
+    .card-4 { --accent: var(--wrinkle-curve); }
+    .card-5 { --accent: var(--bow-curve); }
+    
+    .card-0 .card-title { color: var(--muscle-curve); }
+    .card-1 .card-title { color: var(--vol-curve); }
+    .card-2 .card-title { color: var(--push-curve); }
+    .card-3 .card-title { color: var(--cape-curve); }
+    .card-4 .card-title { color: var(--wrinkle-curve); }
+    .card-5 .card-title { color: var(--bow-curve); }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 100;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      justify-content: center;
+      align-items: flex-end;
+    }
+    .modal-overlay.active { display: flex; opacity: 1; }
+
+    .modal-sheet {
+      background: var(--bg-panel);
+      width: 100%;
+      max-width: 640px;
+      height: 90vh;
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+      transform: translateY(100%);
+      transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
+    }
+    .modal-overlay.active .modal-sheet { transform: translateY(0); }
+
+    .sheet-header {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--bg-panel);
+      flex-shrink: 0;
+    }
+    .sheet-title { font-size: 16px; font-weight: 700; color: var(--modal-accent, var(--text)); }
+    
+    .btn-close {
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .btn-close:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+
+    .sheet-stage-container {
+      background: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px) 0 0/14px 14px, var(--bg-raise);
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      background-clip: padding-box;
+    }
+    .sheet-stage-container svg { width: 100%; height: auto; display: block; max-height: 32vh; }
+
+    .sheet-body {
+      padding: 14px 16px 40px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .readout {
+      margin-top: 4px;
+      display: grid;
+      gap: 4px 12px;
+      background: rgba(0,0,0,0.4);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+      border-left: 3px solid var(--modal-accent, #57d1ff);
+    }
+    .controls { display: flex; flex-direction: column; gap: 10px; }
+    .slider-card {
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 12px;
+    }
+    .slider-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .slider-head label { font-size: 12.5px; color: var(--text); font-weight: 500; }
+    .slider-val { font-size: 11.5px; font-family: 'JetBrains Mono', monospace; color: var(--modal-accent, #57d1ff); }
+
+    input[type=range] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      cursor: pointer;
+      background: var(--modal-accent, #57d1ff);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+
+    .dual-range-container {
+      position: relative;
+      height: 24px;
+      display: flex;
+      align-items: center;
+    }
+    .dual-range-container input[type=range] {
+      position: absolute;
+      width: 100%;
+      background: none;
+      pointer-events: none;
+    }
+    .dual-range-container input[type=range]::-webkit-slider-thumb {
+      pointer-events: auto;
+      position: relative;
+      z-index: 3;
+    }
+    .range-track-bg {
+      position: absolute;
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      z-index: 1;
+    }
+    .range-track-fill {
+      position: absolute;
+      height: 6px;
+      background: var(--modal-accent, #8fd457);
+      border-radius: 3px;
+      z-index: 2;
+    }
+
+    select.rig-select {
+      width: 100%;
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 13px;
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    .segmented-group {
+      display: flex;
+      background: var(--bg-viewport);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      margin-top: 4px;
+    }
+    .segmented-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 7px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .segmented-btn.active {
+      background: var(--bg-raise);
+      color: var(--text);
+      font-weight: 700;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      color: var(--modal-accent, #57d1ff);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12.5px;
+      color: var(--text-dim);
+      padding: 2px 2px;
+      cursor: pointer;
+    }
+    .toggle-row input { width: 16px; height: 16px; accent-color: var(--modal-accent, #57d1ff); }
+
+    .axis-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-top: 4px;
+      color: var(--modal-accent, #57d1ff);
+    }
+
+    .recipe-card {
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .recipe-one-liner {
+      font-size: 12.5px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+    .recipe-io {
+      display: grid;
+      gap: 6px;
+      font-size: 11.5px;
+    }
+    .recipe-io-row {
+      display: grid;
+      grid-template-columns: 4.5em 1fr;
+      gap: 8px;
+      align-items: baseline;
+    }
+    .recipe-io-row dt {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--modal-accent, #57d1ff);
+    }
+    .recipe-io-row dd {
+      color: var(--text-dim);
+      line-height: 1.4;
+      margin: 0;
+    }
+    .recipe-intuition {
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--text-dim);
+      padding-top: 2px;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+    .recipe-core { margin-top: 0; }
+    .recipe-core summary { color: var(--text); font-weight: 500; }
+
+    .formula-box {
+      background: var(--bg-raise);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px 14px;
+      margin-top: 4px;
+    }
+    .formula-box summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 9px 0;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.03em;
+      user-select: none;
+      color: var(--modal-accent, #57d1ff);
+    }
+    .formula-box summary::-webkit-details-marker { display: none; }
+    .formula-box summary::before { content: "▸ "; }
+    .formula-box[open] summary::before { content: "▾ "; }
+    .formula-body {
+      padding: 0 0 12px;
+      border-top: 1px solid var(--border);
+      margin-top: -1px;
+    }
+    .formula-body pre {
+      font-size: 11px;
+      line-height: 1.6;
+      color: var(--mono);
+      white-space: pre;
+      overflow-x: auto;
+      padding-top: 10px;
+    }
+    .script-wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 12px 12px 0; /* Matches grid-container's 12px mobile padding */
+    }
+    @media (min-width: 680px) {
+      .grid-container { gap: 16px; padding: 24px; }
+      .grid-card { padding: 14px; }
+      .card-title { font-size: 14px; }
+      .modal-sheet { border-radius: 20px; height: 85vh; }
+      .modal-overlay { align-items: center; }
+      .script-wrapper { 
+        padding: 24px 24px 0; /* Matches grid-container's 24px desktop padding */
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <h1 class="hero-title">The In-Between</h1>
+    <p class="hero-sub">Math-driven curve and joint behaviour between your existing controls.</p>
+    <p class="hero-intro">Each recipe starts with portable maths — usable in Maya, Blender, Unreal, or anywhere else — then adds live exploration and optional DCC wiring. Tap a card to open the workbench.</p>
+  </header>
+
+  <div class="script-wrapper">
+    <details class="formula-box">
+      <summary>Utility: Create Joints On Curve (Maya)</summary>
+      <div class="formula-body mono code-block-wrapper">
+        <button class="copy-btn" id="globalCopyBtn" aria-label="Copy Maya script to clipboard">Copy</button>
+    <pre id="globalMayaScript">import maya.cmds as cmds
+
+def create_evenly_spaced_joints(name="curve_jnt", num_joints=5, front_axis='x', up_axis='y'):
+    sel = cmds.ls(sl=True)
+    if not sel:
+        cmds.warning("Please select a valid curve.")
+        return
+        
+    crv = sel[0]
+    shapes = cmds.listRelatives(crv, shapes=True)
+    if not shapes or cmds.nodeType(shapes[0]) != 'nurbsCurve':
+        cmds.warning("Selected object is not a valid NURBS curve.")
+        return
+        
+    if num_joints < 1:
+        cmds.warning("Number of joints must be at least 1.")
+        return
+
+    cmds.undoInfo(openChunk=True)
+    
+    jnt_group = cmds.group(empty=True, name=f"{name}_GRP")
+    created_joints = []
+    
+    try:
+        # Check if the curve is physically closed (1=Closed, 2=Periodic)
+        form = cmds.getAttr(f"{shapes[0]}.form")
+        is_closed = (form > 0)
+
+        for i in range(num_joints):
+            cmds.select(clear=True)
+            jnt = cmds.joint(name=f"{name}_{i:02d}")
+            cmds.parent(jnt, jnt_group)
+            created_joints.append(jnt)
+            
+            m_path = cmds.pathAnimation(
+                jnt, 
+                curve=crv, 
+                fractionMode=True, 
+                follow=True,
+                followAxis=front_axis,
+                upAxis=up_axis
+            )
+            
+            cmds.cutKey(m_path, time=(None, None), attribute='uValue')
+            
+            # Adjust distribution based on whether the curve connects back to the start
+            if is_closed:
+                u_val = i / float(num_joints)
+            else:
+                u_val = 0.0 if num_joints == 1 else i / float(num_joints - 1)
+                
+            cmds.setAttr(f"{m_path}.uValue", u_val)
+                
+    except Exception as e:
+        cmds.warning(f"Error generating joints: {e}")
+    finally:
+        cmds.undoInfo(closeChunk=True)
+        
+    return created_joints
+
+# Example usage
+if __name__ == "__main__":
+    create_evenly_spaced_joints(name="my_curve_joint", num_joints=10, front_axis='x', up_axis='y')</pre>
+      </div>
+    </details>
+  </div>
+
+  <!-- Dynamic 2-Column Grid Container -->
+  <main class="grid-container" id="gridContainer"></main>
+
+  <!-- Expand Modal / Workbench -->
+  <div class="modal-overlay" id="modalOverlay" onclick="handleOverlayClick(event)">
+    <div class="modal-sheet" id="modalSheet">
+      <div class="sheet-header">
+        <span class="sheet-title" id="modalTitle">Rig Inspector</span>
+        <button class="btn-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="sheet-stage-container" id="modalStageHost"></div>
+      <div class="sheet-body" id="modalControlsHost"></div>
+    </div>
+  </div>
+
+  <!-- OFF-SCREEN MASTER DOM STORES -->
+  <div id="domStore" style="display:none;"></div>
+
+  <script src="cards-common.js"></script>
+  <script>
+    function round(v,n){return Number(v.toFixed(n));}
+    let currentModalIdx = null;
+
+    const cardsManifest = [
+      { id: 0, title: "Muscle Curve", file: "Cards/Muscle_Curve.html" },
+      { id: 1, title: "3D Volume Preservation", file: "Cards/3D_Volume.html" },
+      { id: 2, title: "Angle Push", file: "Cards/Angle_Push.html" },
+      { id: 3, title: "Wave Billow", file: "Cards/Wave_Billow.html" },
+      { id: 4, title: "Skin Wrinkle", file: "Cards/Skin_Wrinkle.html" },
+      { id: 5, title: "Bounded Bow", file: "Cards/Bounded_Bow.html" }
+    ];
+
+    async function initDashboard() {
+      const gridContainer = document.getElementById('gridContainer');
+      const domStore = document.getElementById('domStore');
+
+      for (let i = 0; i < cardsManifest.length; i++) {
+        const item = cardsManifest[i];
+        
+        // Build card skeleton on grid immediately
+        const card = document.createElement('div');
+        card.className = `grid-card card-${i}`;
+        card.onclick = () => openModal(i);
+        card.innerHTML = `
+          <div class="card-head"><span class="card-title">${item.title}</span></div>
+          <div class="card-stage" id="thumb-stage-${i}"></div>
+        `;
+        gridContainer.appendChild(card);
+
+        try {
+          const res = await fetch(item.file);
+          const htmlText = await res.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(htmlText, 'text/html');
+
+          const stageContent = doc.querySelector('.card-stage-content');
+          const controlsContent = doc.querySelector('.card-controls-content');
+
+          if (stageContent && controlsContent) {
+            stageContent.id = `master-rig-${i}`;
+            controlsContent.id = `master-ctrl-${i}`;
+            
+            domStore.appendChild(stageContent);
+            domStore.appendChild(controlsContent);
+
+            document.getElementById(`thumb-stage-${i}`).appendChild(stageContent);
+
+            // Execute scripts associated with this card
+            controlsContent.querySelectorAll('script').forEach(script => {
+              const newScript = document.createElement('script');
+              newScript.text = script.textContent;
+              document.body.appendChild(newScript);
+            });
+          }
+        } catch (e) {
+          console.warn(`CORS restriction or missing file for ${item.file}. Run via local server or check paths.`);
+        }
+      }
+    }
+
+    function openModal(idx) {
+      currentModalIdx = idx;
+      const overlay = document.getElementById('modalOverlay');
+      const sheet = document.getElementById('modalSheet');
+      const title = document.getElementById('modalTitle');
+      const stageHost = document.getElementById('modalStageHost');
+      const ctrlHost = document.getElementById('modalControlsHost');
+
+      title.textContent = cardsManifest[idx].title;
+      
+      const accentVars = ['var(--muscle-curve)', 'var(--vol-curve)', 'var(--push-curve)', 'var(--cape-curve)', 'var(--wrinkle-curve)', 'var(--bow-curve)'];
+      sheet.style.setProperty('--modal-accent', accentVars[idx]);
+
+      stageHost.innerHTML = '';
+      ctrlHost.innerHTML = '';
+      
+      const stageNode = document.getElementById(`master-rig-${idx}`);
+      const ctrlNode = document.getElementById(`master-ctrl-${idx}`);
+      
+      if(stageNode) stageHost.appendChild(stageNode);
+      if(ctrlNode) ctrlHost.appendChild(ctrlNode);
+
+      overlay.classList.add('active');
+    }
+
+    function closeModal() {
+      if (currentModalIdx === null) return;
+      const overlay = document.getElementById('modalOverlay');
+      const idx = currentModalIdx;
+
+      const stageNode = document.getElementById(`master-rig-${idx}`);
+      const ctrlNode = document.getElementById(`master-ctrl-${idx}`);
+      const thumb = document.getElementById(`thumb-stage-${idx}`);
+      
+      if(thumb && stageNode) thumb.appendChild(stageNode);
+      if(ctrlNode) document.getElementById('domStore').appendChild(ctrlNode);
+
+      overlay.classList.remove('active');
+      currentModalIdx = null;
+    }
+
+    function handleOverlayClick(e) {
+      if (e.target.id === 'modalOverlay') closeModal();
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && currentModalIdx !== null) closeModal();
+    });
+
+    function setupGlobalCopyButton() {
+      CardCommon.setupCopyButton(
+        document.getElementById('globalCopyBtn'),
+        document.getElementById('globalMayaScript')
+      );
+    }
+
+    // Ensure it runs when the page loads
+    window.addEventListener('DOMContentLoaded', setupGlobalCopyButton);
+    window.addEventListener('DOMContentLoaded', initDashboard);
+  </script>
+</body>
+</html>

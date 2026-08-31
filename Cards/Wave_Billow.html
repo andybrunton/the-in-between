@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div class="card-stage-content">
+  <svg viewBox="0 0 640 230" id="capeSvg">
+    <!-- Spline Curve Visualization -->
+    <g id="splineGroup" style="display:none;">
+      <path id="splinePath" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2" stroke-dasharray="4 4"/>
+      <path id="splineHandles" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <circle id="cp0" cx="60" cy="115" r="8" fill="var(--joint)" stroke="var(--bg-panel)" stroke-width="2"/>
+      <circle id="cp1" cx="180" cy="60" r="6" fill="var(--axis-y)" stroke="var(--bg-panel)" stroke-width="2" style="pointer-events:none;"/>
+      <circle id="cp2" cx="420" cy="170" r="6" fill="var(--axis-y)" stroke="var(--bg-panel)" stroke-width="2" style="pointer-events:none;"/>
+      <circle id="cp3" cx="580" cy="115" r="8" fill="var(--joint)" stroke="var(--bg-panel)" stroke-width="2"/>
+    </g>
+
+    <!-- Envelope Ellipses -->
+    <g id="r3_envelopeEllipses" opacity="0.6"></g>
+    
+    <!-- Cape Path -->
+    <path id="r3_capeFill" fill="rgba(181,108,255,0.12)" stroke="none"/>
+    <path id="r3_capePath" fill="none" stroke="var(--cape-curve)" stroke-width="3"/>
+    
+    <!-- Cape Joints -->
+    <g id="r3_capeJoints"></g>
+
+    <!-- Fixed Joints -->
+    <circle id="r3_rootJoint" cx="60" cy="115" r="6" fill="var(--joint)"/>
+    <circle id="r3_endJoint" cx="580" cy="115" r="6" fill="var(--joint)" opacity="0"/>
+  </svg>
+</div>
+
+<div class="card-controls-content">
+
+  <div class="recipe-card">
+    <p class="recipe-one-liner">Harmonic waves swept along a bent spine â€” billowing displacement for capes, tails, and multi-joint chains.</p>
+    <dl class="recipe-io">
+      <div class="recipe-io-row"><dt>Inputs</dt><dd>Spine curve (or joint chain), amplitude, frequency, phase, steepness, complexity, start/end angles, boundary mode</dd></div>
+      <div class="recipe-io-row"><dt>Output</dt><dd>Displaced spine points or joint offsets â€” perpendicular wave stack on a cubic spine</dd></div>
+    </dl>
+    <p class="recipe-intuition">Build a cubic BÃ©zier spine from root to tip, sample parameter u along it. Layer sine waves (plus harmonics for richness) and displace each point perpendicular to the local tangent. Phase animation sells wind; envelope tapers displacement at pinned ends.</p>
+    <details class="formula-box recipe-core">
+      <summary>Pseudocode</summary>
+      <div class="formula-body mono"><pre>spine = cubic_bezier(P0, P1, P2, P3)
+for each u along spine:
+  base = evaluate(spine, u)
+  tangent = normalize(derivative(spine, u))
+  normal = perpendicular(tangent)
+  theta = 2*pi*freq*u - phase
+  disp = amplitude * envelope(u) * normal
+  disp += harmonic_stack(theta, complexity)
+  point = base + disp</pre></div>
+    </details>
+  </div>
+
+  <div class="axis-title">Explore</div>
+  <div class="controls">
+    <!-- Spline Controls -->
+    <div class="slider-card">
+      <div class="slider-head">
+        <label>Spline Bend</label>
+        <label style="margin-left:auto; font-size:10px; color:#888;">
+          <input type="checkbox" id="splineToggle"> Enable
+        </label>
+      </div>
+      <div class="slider-card" style="padding-top:4px; border-top:1px solid rgba(255,255,255,0.05); margin-top:4px;">
+        <div class="slider-head">
+          <label>Start Angle</label>
+          <span class="slider-val mono" id="startAngleVal">0Â°</span>
+        </div>
+        <input type="range" id="startAngle" min="-60" max="60" step="1" value="0">
+      </div>
+      <div class="slider-card" style="padding-top:2px;">
+        <div class="slider-head">
+          <label>End Angle</label>
+          <span class="slider-val mono" id="endAngleVal">0Â°</span>
+        </div>
+        <input type="range" id="endAngle" min="-60" max="60" step="1" value="0">
+      </div>
+      <div style="display:flex; gap:4px; margin-top:4px;">
+        <button class="segmented-btn" id="resetSplineBtn" style="flex:1;">Reset Angles</button>
+        <button class="segmented-btn" id="randomSplineBtn" style="flex:1;">Random</button>
+      </div>
+      <div style="font-size:8px; color:#555; margin-top:4px; text-align:center;">
+        Rotate the start and end joints to bend the cape spine naturally
+      </div>
+    </div>
+
+    <!-- Main Wave Controls -->
+    <div class="slider-card">
+      <div class="slider-head"><label>Amplitude</label><span class="slider-val mono" id="r3_ampVal">48px</span></div>
+      <input type="range" id="r3_amp" min="0" max="75" step="1" value="48">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Frequency</label><span class="slider-val mono" id="r3_freqVal">1.75 cyc</span></div>
+      <input type="range" id="r3_freq" min="0.25" max="4.0" step="0.25" value="1.75">
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Circularity</label><span class="slider-val mono" id="r3_steepnessVal">0.75</span></div>
+      <input type="range" id="r3_steepness" min="0.0" max="1.0" step="0.05" value="0.75">
+    </div>
+    
+    <!-- Complexity Slider -->
+    <div class="slider-card">
+      <div class="slider-head">
+        <label>Complexity</label>
+        <span class="slider-val mono" id="r3_complexityVal">0.00</span>
+      </div>
+      <input type="range" id="r3_complexity" min="0" max="1.0" step="0.02" value="0.5">
+    </div>
+    <div style="display:flex; justify-content:space-between; padding:0 4px; font-size:8px; color:#555; margin-top:-6px; margin-bottom:8px;">
+      <span>Pure Sine</span>
+      <span>+ Harmonics</span>
+      <span>Rich Wave</span>
+    </div>
+
+    <!-- Global Controls -->
+    <div class="slider-card">
+      <div class="slider-head"><label>Wave Travel Phase</label><span class="slider-val mono" id="r3_phaseVal">0.0&deg;</span></div>
+      <input type="range" id="r3_phase" min="0" max="360" step="1" value="0">
+    </div>
+    <label class="toggle-row"><input type="checkbox" id="animToggle3" checked> Animate Wind Flow</label>
+    
+    <div class="slider-card">
+      <div class="slider-head"><label>Boundary Mode</label></div>
+      <div class="segmented-group" id="r3_boundaryGroup">
+        <button class="segmented-btn" data-mode="freestart">Free Start</button>
+        <button class="segmented-btn active" data-mode="freeend">Free End</button>
+        <button class="segmented-btn" data-mode="pinned">Pinned</button>
+      </div>
+      <input type="hidden" id="r3_boundaryMode" value="freeend">
+    </div>
+  </div>
+
+    <details class="formula-box">
+      <summary>Full formula breakdown</summary>
+      <div class="formula-body mono">
+<pre>Harmonic Wave Billow â€” Dynamic Phase Sweep + Spline Bend
+
+Main Wave (Base Layer):
+  dx = -steepness * amp * envelope * sin(Î¸)
+  dy = -amp * envelope * cos(Î¸)
+  Î¸ = 2Ï€f Â· uL - Ï†
+
+Harmonics (added by Complexity):
+  h1: 2Ã— freq, 0.5Ã— amp,  phase = baseOffset Ã— 0.5
+  h2: 3Ã— freq, 0.33Ã— amp, phase = baseOffset Ã— 0.8
+  h3: 4Ã— freq, 0.25Ã— amp, phase = baseOffset Ã— 1.2
+
+  Where baseOffset = complexity Ã— 2Ï€
+
+SPLINE BEND (Simplified):
+  â€¢ The cape spine is defined by a cubic BÃ©zier curve.
+  â€¢ The Start Angle controls the direction leaving the shoulder.
+  â€¢ The End Angle controls the direction arriving at the tip.
+  â€¢ The handles are automatically positioned for a natural bend.
+  â€¢ Wave displacement is applied perpendicular to the spine.
+</pre>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r3_node_details">
+      <summary>Node graph (Maya wiring)</summary>
+      <div class="formula-body">
+        <div class="m-graph-view m-graph-view--tall" id="r3_graph_container">
+          <div class="m-canvas" id="r3_node_canvas">
+            <svg class="m-svg-layer" id="r3_node_svg"></svg>
+            <div class="m-node" style="left: 10px; top: 10px;">
+              <div class="m-header input">Main Wave</div>
+              <div class="m-body">
+                <div class="m-row"><span class="m-label">amp</span><div class="m-port out float" id="r3_p_amp"></div></div>
+                <div class="m-row"><span class="m-label">freq</span><div class="m-port out float" id="r3_p_freq"></div></div>
+                <div class="m-row"><span class="m-label">circ</span><div class="m-port out float" id="r3_p_steep"></div></div>
+              </div>
+            </div>
+            <div class="m-node" style="left: 10px; top: 160px;">
+              <div class="m-header input">Complexity</div>
+              <div class="m-body">
+                <div class="m-row"><span class="m-label">amount</span><div class="m-port out float" id="r3_p_complex"></div></div>
+              </div>
+            </div>
+            <div class="m-node" style="left: 200px; top: 85px;">
+              <div class="m-header wave">harmonics</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in float" id="r3_p_h1_in"></div><span class="m-label">main</span></div>
+                <div class="m-row"><div class="m-port in float" id="r3_p_h2_in"></div><span class="m-label">h2</span></div>
+                <div class="m-row"><div class="m-port in float" id="r3_p_h3_in"></div><span class="m-label">h3</span></div>
+                <div class="m-row"><div class="m-port in float" id="r3_p_h4_in"></div><span class="m-label">h4</span></div>
+                <div class="m-row" style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">combined</span>
+                  <div class="m-port out wave" id="r3_p_comb_out"></div>
+                </div>
+              </div>
+            </div>
+            <div class="m-node" style="left: 430px; top: 85px;">
+              <div class="m-header boundary">envelope</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in wave" id="r3_p_env_wave"></div><span class="m-label">wave</span></div>
+                <div class="m-row"><div class="m-port in float" id="r3_p_env_mode"></div><span class="m-label">mode</span></div>
+                <div class="m-row" style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">position</span>
+                  <div class="m-port out wave" id="r3_p_env_out"></div>
+                </div>
+              </div>
+            </div>
+            <div class="m-node" style="left: 620px; top: 85px;">
+              <div class="m-header output">Cape</div>
+              <div class="m-body">
+                <div class="m-row"><div class="m-port in wave" id="r3_p_cape_in"></div><span class="m-label">points</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r3_maya_details">
+      <summary>Maya adapter script</summary>
+      <div class="formula-body mono code-block-wrapper">
+        <button class="copy-btn" id="copyScriptBtn3" aria-label="Copy Maya script to clipboard">Copy</button>
+<pre id="mayaScript3">import maya.cmds as cmds
+import math
+
+def build_cape_rig():
+    name = "CapeRig"
+    if cmds.objExists(name): cmds.delete(name)
+    
+    root = cmds.group(em=True, name=name)
+    root_joint = cmds.joint(name=f"{name}_Root", p=(0, 0, 0))
+    
+    num_joints = 16
+    joints = [root_joint]
+    for i in range(1, num_joints + 1):
+        u = i / float(num_joints + 1)
+        x = u * 520 - 260
+        jnt = cmds.joint(name=f"{name}_Joint_{i}", p=(x, 0, 0))
+        cmds.parent(jnt, joints[-1])
+        joints.append(jnt)
+    
+    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
+    cmds.parent(settings, root)
+    cmds.setAttr(f"{settings}.visibility", 0)
+    
+    cmds.addAttr(settings, ln="amp", at="float", dv=48, min=0, max=75, k=True)
+    cmds.addAttr(settings, ln="freq", at="float", dv=1.75, min=0.25, max=4.0, k=True)
+    cmds.addAttr(settings, ln="steepness", at="float", dv=0.75, min=0, max=1, k=True)
+    cmds.addAttr(settings, ln="complexity", at="float", dv=0.5, min=0, max=1, k=True)
+    cmds.addAttr(settings, ln="phase", at="float", dv=0, min=0, max=360, k=True)
+    cmds.addAttr(settings, ln="boundaryMode", at="enum", en="freestart:freeend:pinned", dv=1, k=True)
+    
+    expr = f'''
+float $phase = {settings}.phase * 3.14159 / 180;
+int $mode = {settings}.boundaryMode;
+float $amp = {settings}.amp;
+float $freq = {settings}.freq;
+float $steep = {settings}.steepness;
+float $complex = {settings}.complexity;
+
+float $baseOffset = $complex * 2 * 3.14159;
+float $phaseOffsets[4];
+$phaseOffsets[0] = 0;
+$phaseOffsets[1] = $baseOffset * 0.5;
+$phaseOffsets[2] = $baseOffset * 0.8;
+$phaseOffsets[3] = $baseOffset * 1.2;
+
+float $weights[4];
+$weights[0] = 1.0;
+$weights[1] = clamp(($complex - 0.00) / 0.33, 0, 1);
+$weights[2] = clamp(($complex - 0.33) / 0.33, 0, 1);
+$weights[3] = clamp(($complex - 0.66) / 0.34, 0, 1);
+
+float $mult[4];
+$mult[0] = 1;
+$mult[1] = 2;
+$mult[2] = 3;
+$mult[3] = 4;
+
+float $ampMult[4];
+$ampMult[0] = 1;
+$ampMult[1] = 0.5;
+$ampMult[2] = 0.33;
+$ampMult[3] = 0.25;
+
+float $L = 520;
+for ($i = 1; $i <= 16; $i++) {{
+    float $u = $i / 17.0;
+    float $x = $u * $L - 260;
+    float $amp_u;
+    if ($mode == 0) {{ $amp_u = 1 - $u; }}
+    else if ($mode == 2) {{ $amp_u = 4 * $u * (1 - $u); }}
+    else {{ $amp_u = $u; }}
+    
+    float $dx = 0; float $dy = 0;
+    for ($h = 0; $h < 4; $h++) {{
+        float $k = (2 * 3.14159 * $freq * $mult[$h]) / $L;
+        float $theta = $k * ($u * $L) - $phase + $phaseOffsets[$h];
+        float $hAmp = $amp * $ampMult[$h] * $weights[$h];
+        $dx += -$steep * $hAmp * $amp_u * sin($theta);
+        $dy += -$hAmp * $amp_u * cos($theta);
+    }}
+    setAttr "{name}_Joint_$i.translateX" ($x + $dx);
+    setAttr "{name}_Joint_$i.translateY" $dy;
+}}
+'''
+    cmds.expression(s=expr, name=f"{name}_WaveExpr")
+    cmds.select(root)
+    cmds.group(name=f"{name}_Grp")
+
+build_cape_rig()</pre>
+      </div>
+    </details>
+
+  <script>
+    (function(){
+      // Constants
+      const ORIGIN_X = 60, ORIGIN_Y = 115, CAPE_LENGTH = 520, STEPS = 80;
+      const ANIMATION_SPEED = 0.12, NUM_JOINTS = 16;
+
+      const round = (v, n) => Number(v.toFixed(n));
+
+      // Spline Control Points (P0 and P3 are fixed, P1 and P2 are computed)
+      const P0 = { x: 60, y: 115 };
+      const P3 = { x: 580, y: 115 };
+
+      // Bezier evaluation
+      function bezierPos(u, p0, p1, p2, p3) {
+        const t = u;
+        const mt = 1 - t;
+        const x = mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x;
+        const y = mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y;
+        return { x, y };
+      }
+
+      function bezierTangent(u, p0, p1, p2, p3) {
+        const t = u;
+        const mt = 1 - t;
+        const x = 3*mt*mt*(p1.x - p0.x) + 6*mt*t*(p2.x - p1.x) + 3*t*t*(p3.x - p2.x);
+        const y = 3*mt*mt*(p1.y - p0.y) + 6*mt*t*(p2.y - p1.y) + 3*t*t*(p3.y - p2.y);
+        const len = Math.hypot(x, y) || 0.001;
+        return { x: x / len, y: y / len };
+      }
+
+      function getAmplitudeEnvelope(u, mode) {
+        switch(mode) {
+          case 'freestart': 
+            return Math.max(0.02, 1 - u);
+          case 'pinned': 
+            return 4 * u * (1 - u);
+          default: 
+            return u;
+        }
+      }
+
+      // DOM refs
+      const dom = {
+        amp: document.getElementById('r3_amp'),
+        freq: document.getElementById('r3_freq'),
+        steepness: document.getElementById('r3_steepness'),
+        complexity: document.getElementById('r3_complexity'),
+        phase: document.getElementById('r3_phase'),
+        boundaryMode: document.getElementById('r3_boundaryMode'),
+        startAngle: document.getElementById('startAngle'),
+        endAngle: document.getElementById('endAngle'),
+        startAngleVal: document.getElementById('startAngleVal'),
+        endAngleVal: document.getElementById('endAngleVal'),
+        ampVal: document.getElementById('r3_ampVal'),
+        freqVal: document.getElementById('r3_freqVal'),
+        steepnessVal: document.getElementById('r3_steepnessVal'),
+        complexityVal: document.getElementById('r3_complexityVal'),
+        phaseVal: document.getElementById('r3_phaseVal'),
+        animToggle: document.getElementById('animToggle3'),
+        capePath: document.getElementById('r3_capePath'),
+        capeFill: document.getElementById('r3_capeFill'),
+        capeJoints: document.getElementById('r3_capeJoints'),
+        envelopeEllipses: document.getElementById('r3_envelopeEllipses'),
+        endJoint: document.getElementById('r3_endJoint'),
+        splineGroup: document.getElementById('splineGroup'),
+        splinePath: document.getElementById('splinePath'),
+        splineHandles: document.getElementById('splineHandles'),
+        splineToggle: document.getElementById('splineToggle'),
+        cp0: document.getElementById('cp0'),
+        cp1: document.getElementById('cp1'),
+        cp2: document.getElementById('cp2'),
+        cp3: document.getElementById('cp3'),
+      };
+
+      function getComputedSplinePoints() {
+        const startAngleDeg = parseFloat(dom.startAngle.value) || 0;
+        const endAngleDeg = parseFloat(dom.endAngle.value) || 0;
+        
+        const startAngleRad = startAngleDeg * Math.PI / 180;
+        const endAngleRad = endAngleDeg * Math.PI / 180;
+        
+        const dist = Math.hypot(P3.x - P0.x, P3.y - P0.y);
+        const handleLen = dist / 3.5; // Slightly shorter handles for a tighter bend
+        
+        const P1 = {
+          x: P0.x + handleLen * Math.cos(startAngleRad),
+          y: P0.y + handleLen * Math.sin(startAngleRad)
+        };
+        const P2 = {
+          x: P3.x - handleLen * Math.cos(endAngleRad),
+          y: P3.y - handleLen * Math.sin(endAngleRad)
+        };
+        
+        return { P0, P1, P2, P3 };
+      }
+
+      function updateSplineVisuals() {
+        const pts = getComputedSplinePoints();
+        // Update handle lines
+        dom.splineHandles.setAttribute('d', 
+          `M ${pts.P0.x} ${pts.P0.y} L ${pts.P1.x} ${pts.P1.y} M ${pts.P2.x} ${pts.P2.y} L ${pts.P3.x} ${pts.P3.y}`
+        );
+        // Update curve
+        let d = '';
+        for (let i = 0; i <= 100; i++) {
+          const u = i / 100;
+          const p = bezierPos(u, pts.P0, pts.P1, pts.P2, pts.P3);
+          d += (i === 0) ? `M ${p.x} ${p.y}` : ` L ${p.x} ${p.y}`;
+        }
+        dom.splinePath.setAttribute('d', d);
+        // Update circles
+        dom.cp0.setAttribute('cx', pts.P0.x); dom.cp0.setAttribute('cy', pts.P0.y);
+        dom.cp1.setAttribute('cx', pts.P1.x); dom.cp1.setAttribute('cy', pts.P1.y);
+        dom.cp2.setAttribute('cx', pts.P2.x); dom.cp2.setAttribute('cy', pts.P2.y);
+        dom.cp3.setAttribute('cx', pts.P3.x); dom.cp3.setAttribute('cy', pts.P3.y);
+        
+        // Update angle displays
+        dom.startAngleVal.textContent = `${Math.round(parseFloat(dom.startAngle.value) || 0)}Â°`;
+        dom.endAngleVal.textContent = `${Math.round(parseFloat(dom.endAngle.value) || 0)}Â°`;
+      }
+
+      function resetSpline() {
+        dom.startAngle.value = 0;
+        dom.endAngle.value = 0;
+        updateSplineVisuals();
+        updateCape();
+      }
+
+      function randomSpline() {
+        const rand = (min, max) => Math.round(Math.random() * (max - min) + min);
+        dom.startAngle.value = rand(-45, 45);
+        dom.endAngle.value = rand(-45, 45);
+        updateSplineVisuals();
+        updateCape();
+      }
+
+      // Update function
+      function updateCape() {
+        const amp = parseFloat(dom.amp.value);
+        const freq = parseFloat(dom.freq.value);
+        const steepness = parseFloat(dom.steepness.value);
+        const complexity = parseFloat(dom.complexity.value);
+        const phaseDeg = parseFloat(dom.phase.value);
+        const mode = dom.boundaryMode.value;
+        const splineEnabled = dom.splineToggle.checked;
+
+        // Update displays
+        dom.ampVal.textContent = `${round(amp, 0)}px`;
+        dom.freqVal.textContent = `${round(freq, 2)} cyc`;
+        dom.steepnessVal.textContent = `${round(steepness, 2)}`;
+        dom.complexityVal.textContent = `${round(complexity, 2)}`;
+        dom.phaseVal.textContent = `${round(phaseDeg, 0)}Â°`;
+        dom.endJoint.setAttribute('opacity', mode === 'pinned' ? '1' : '0');
+
+        // Show/hide spline controls
+        dom.splineGroup.style.display = splineEnabled ? 'block' : 'none';
+
+        const phaseRad = phaseDeg * Math.PI / 180;
+
+        // Dynamic phase offsets
+        const baseOffset = complexity * 2 * Math.PI;
+        const phaseOffsets = [
+          0,
+          baseOffset * 0.5,
+          baseOffset * 0.8,
+          baseOffset * 1.2
+        ];
+
+        // Weights
+        const w1 = Math.max(0, Math.min(1, (complexity - 0.0) / 0.33));
+        const w2 = Math.max(0, Math.min(1, (complexity - 0.33) / 0.33));
+        const w3 = Math.max(0, Math.min(1, (complexity - 0.66) / 0.34));
+
+        const harmonics = [
+          { mult: 1, ampMult: 1, weight: 1.0 },
+          { mult: 2, ampMult: 0.5, weight: w1 },
+          { mult: 3, ampMult: 1/3, weight: w2 },
+          { mult: 4, ampMult: 0.25, weight: w3 }
+        ];
+
+        // Get spline points
+        const splinePts = getComputedSplinePoints();
+        const pts = splinePts;
+
+        // Pre-compute spline points if enabled
+        let splineCache = [];
+        if (splineEnabled) {
+          for (let i = 0; i <= STEPS; i++) {
+            const u = i / STEPS;
+            const p = bezierPos(u, pts.P0, pts.P1, pts.P2, pts.P3);
+            const t = bezierTangent(u, pts.P0, pts.P1, pts.P2, pts.P3);
+            splineCache.push({ u, p, t });
+          }
+        }
+
+        // Generate all points
+        const allPoints = [];
+        for (let i = 0; i <= STEPS; i++) {
+          const u = i / STEPS;
+          const envelope = getAmplitudeEnvelope(u, mode);
+          let totalDx = 0, totalDy = 0;
+          
+          for (let h = 0; h < harmonics.length; h++) {
+            const harm = harmonics[h];
+            const hAmp = amp * harm.ampMult * harm.weight;
+            const hFreq = freq * harm.mult;
+            const phaseOff = phaseOffsets[h];
+            let dx = 0, dy = 0;
+            if (hAmp > 0.1) {
+              const k = (2 * Math.PI * hFreq) / CAPE_LENGTH;
+              const theta = k * (u * CAPE_LENGTH) - phaseRad + phaseOff;
+              dx = -steepness * hAmp * envelope * Math.sin(theta);
+              dy = -hAmp * envelope * Math.cos(theta);
+            }
+            totalDx += dx;
+            totalDy += dy;
+          }
+
+          let finalX, finalY;
+          if (splineEnabled) {
+            const sp = splineCache[i];
+            // Map wave displacement to spline tangent/normal
+            const tx = sp.t.x;
+            const ty = sp.t.y;
+            const nx = -ty;
+            const ny = tx;
+            finalX = sp.p.x + totalDx * tx + totalDy * nx;
+            finalY = sp.p.y + totalDx * ty + totalDy * ny;
+          } else {
+            finalX = ORIGIN_X + u * CAPE_LENGTH + totalDx;
+            finalY = ORIGIN_Y + totalDy;
+          }
+          allPoints.push({ u, envelope, totalDx, totalDy, finalX, finalY });
+        }
+
+        // Cape path (combined)
+        let pathD = '', fillD = '';
+        let lastX = allPoints[0].finalX, lastY = allPoints[0].finalY;
+        for (let i = 0; i <= STEPS; i++) {
+          const pt = allPoints[i];
+          const x = pt.finalX;
+          const y = pt.finalY;
+          pathD += (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`);
+          lastX = x; lastY = y;
+        }
+        // Close the fill path
+        let baseX, baseY;
+        if (splineEnabled) {
+          const sp0 = splineCache[0];
+          baseX = sp0.p.x;
+          baseY = sp0.p.y;
+          const spN = splineCache[STEPS];
+          // We need to trace back along the spline
+          let backPath = '';
+          for (let i = STEPS; i >= 0; i--) {
+            const sp = splineCache[i];
+            backPath += ` L ${sp.p.x} ${sp.p.y}`;
+          }
+          fillD = pathD + backPath + ' Z';
+        } else {
+          fillD = `${pathD} L ${ORIGIN_X + CAPE_LENGTH} ${ORIGIN_Y} L ${ORIGIN_X} ${ORIGIN_Y} Z`;
+        }
+        dom.capePath.setAttribute('d', pathD);
+        dom.capeFill.setAttribute('d', fillD);
+
+        // Joints
+        let jointsHTML = '';
+        let prevJX = allPoints[0].finalX, prevJY = allPoints[0].finalY;
+        for (let j = 1; j <= NUM_JOINTS; j++) {
+          const u = j / (NUM_JOINTS + 1);
+          const idx = Math.round(u * STEPS);
+          const pt = allPoints[idx] || allPoints[allPoints.length - 1];
+          const jX = pt.finalX;
+          const jY = pt.finalY;
+          if (!(mode === 'pinned' && j === NUM_JOINTS)) {
+            jointsHTML += `<line x1="${prevJX}" y1="${prevJY}" x2="${jX}" y2="${jY}" stroke="var(--bone)" stroke-width="2.5" stroke-linecap="round"/>`;
+            jointsHTML += `<circle cx="${jX}" cy="${jY}" r="${j === NUM_JOINTS ? 5 : 3.5}" fill="var(--cape-curve)"/>`;
+          } else {
+            jointsHTML += `<line x1="${prevJX}" y1="${prevJY}" x2="${jX}" y2="${jY}" stroke="var(--bone)" stroke-width="2.5" stroke-linecap="round"/>`;
+          }
+          prevJX = jX; prevJY = jY;
+        }
+        dom.capeJoints.innerHTML = jointsHTML;
+
+        // Envelope Ellipses
+        let ellipsesHTML = '';
+        const baseFreq = freq;
+        const baseAmp = amp;
+        const baseSteep = steepness;
+
+        if (baseAmp > 0) {
+          const numEllipses = Math.max(1, Math.round(baseFreq * 2));
+          
+          for (let r = 1; r <= numEllipses; r++) {
+            let u = r / (numEllipses + 1);
+            const envelope = getAmplitudeEnvelope(u, mode);
+            const amp_u = baseAmp * envelope;
+            
+            if (amp_u > 4) {
+              let centerX, centerY, angle = 0;
+              const rx = baseSteep * amp_u;
+              const ry = amp_u;
+              
+              if (splineEnabled) {
+                const idx = Math.round(u * STEPS);
+                const sp = splineCache[idx] || splineCache[0];
+                centerX = sp.p.x;
+                centerY = sp.p.y;
+                angle = Math.atan2(sp.t.y, sp.t.x) * 180 / Math.PI;
+              } else {
+                centerX = ORIGIN_X + u * CAPE_LENGTH;
+                centerY = ORIGIN_Y;
+              }
+              
+              const opacity = 0.5;
+              ellipsesHTML += `<ellipse cx="${centerX}" cy="${centerY}" rx="${rx}" ry="${ry}" 
+                                   transform="rotate(${angle} ${centerX} ${centerY})"
+                                   fill="none" stroke="var(--cape-curve)" stroke-width="1.5" 
+                                   opacity="${opacity}" stroke-dasharray="4 4"/>`;
+            }
+          }
+        }
+        dom.envelopeEllipses.innerHTML = ellipsesHTML;
+      }
+
+      // ====== EVENT SETUP ======
+      // Spline toggle
+      dom.splineToggle.addEventListener('change', updateCape);
+
+      // Spline reset/random
+      document.getElementById('resetSplineBtn').addEventListener('click', resetSpline);
+      document.getElementById('randomSplineBtn').addEventListener('click', randomSpline);
+
+      // Angle sliders
+      dom.startAngle.addEventListener('input', () => {
+        updateSplineVisuals();
+        updateCape();
+      });
+      dom.endAngle.addEventListener('input', () => {
+        updateSplineVisuals();
+        updateCape();
+      });
+
+      // Boundary mode tabs
+      document.querySelectorAll('#r3_boundaryGroup .segmented-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const mode = this.dataset.mode;
+          document.querySelectorAll('#r3_boundaryGroup .segmented-btn').forEach(b => b.classList.remove('active'));
+          this.classList.add('active');
+          dom.boundaryMode.value = mode;
+          updateCape();
+        });
+      });
+
+      // Sliders
+      ['amp', 'freq', 'steepness', 'complexity', 'phase'].forEach(id => {
+        document.getElementById(`r3_${id}`).addEventListener('input', updateCape);
+      });
+
+      // Animation
+      const jSlider = document.getElementById('r3_phase');
+      const animBox = document.getElementById('animToggle3');
+      jSlider.addEventListener('pointerdown', () => { animBox.checked = false; });
+
+      // Initial setup
+      updateSplineVisuals();
+      updateCape();
+
+      // Animation loop
+      let isAnimating = true;
+      function tick(t){
+        if (animBox.checked && isAnimating) {
+          const curDeg = (t * 0.12) % 360;
+          jSlider.value = curDeg.toFixed(0);
+          updateCape();
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+
+      const nodeGraph = CardCommon.setupNodeGraph({
+        detailsEl: document.getElementById('r3_node_details'),
+        containerEl: document.getElementById('r3_graph_container'),
+        canvasEl: document.getElementById('r3_node_canvas'),
+        svgEl: document.getElementById('r3_node_svg'),
+        openDelay: 100,
+        connections: [
+          ['r3_p_amp', 'r3_p_h1_in', 'var(--cape-curve)'],
+          ['r3_p_freq', 'r3_p_h1_in', 'var(--cape-curve)'],
+          ['r3_p_steep', 'r3_p_h1_in', 'var(--cape-curve)'],
+          ['r3_p_complex', 'r3_p_h2_in', '#ff8844'],
+          ['r3_p_complex', 'r3_p_h3_in', '#44ff88'],
+          ['r3_p_complex', 'r3_p_h4_in', '#4488ff'],
+          ['r3_p_comb_out', 'r3_p_env_wave', 'var(--cape-curve)'],
+          ['r3_p_env_out', 'r3_p_cape_in', 'var(--cape-curve)']
+        ]
+      });
+      CardCommon.setupCopyButton(
+        document.getElementById('copyScriptBtn3'),
+        document.getElementById('mayaScript3')
+      );
+
+      window.addEventListener('beforeunload', function() {
+        nodeGraph.disconnect();
+      }, { passive: true });
+
+    })();
+  </script>
+</div>
+</body>
+</html>

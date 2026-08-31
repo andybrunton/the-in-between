@@ -1,0 +1,792 @@
+﻿<!DOCTYPE html>
+<html>
+<body>
+<div class="card-stage-content">
+  <svg viewBox="0 0 800 450" id="rig1Svg">
+    <g stroke="rgba(255,255,255,0.06)" stroke-width="1" id="r1_isoGrid"></g>
+    <path id="r1_ghostWireXY" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="1" stroke-dasharray="3 3"/>
+    <line id="r1_boneUpper" stroke="var(--bone)" stroke-width="5" stroke-linecap="round"/>
+    <line id="r1_boneForearm" stroke="var(--bone)" stroke-width="5" stroke-linecap="round"/>
+    <path id="r1_ellipHull" fill="rgba(143,212,87,0.16)" stroke="var(--vol-curve)" stroke-width="1.5"/>
+    <path id="r1_ribXY" fill="none" stroke="var(--vol-curve)" stroke-width="1.5"/>
+    <path id="r1_ribXZ" fill="none" stroke="var(--vol-curve)" stroke-width="1.5" stroke-dasharray="4 2"/>
+    <path id="r1_ribYZ" fill="none" stroke="var(--vol-curve)" stroke-width="1.5"/>
+    <line id="r1_axisX" stroke="var(--axis-x)" stroke-width="2"/>
+    <line id="r1_axisY" stroke="var(--axis-y)" stroke-width="2"/>
+    <line id="r1_axisZ" stroke="var(--axis-z)" stroke-width="2"/>
+    <circle id="r1_jointShoulder" r="6" fill="var(--joint)"/>
+    <circle id="r1_jointElbow" r="6" fill="var(--joint)"/>
+    <circle id="r1_jointWrist" r="6" fill="var(--joint)"/>
+    <text id="r1_labelX" fill="var(--axis-x)" font-size="10" font-family="monospace" font-weight="bold">X</text>
+    <text id="r1_labelY" fill="var(--axis-y)" font-size="10" font-family="monospace" font-weight="bold">Y</text>
+    <text id="r1_labelZ" fill="var(--axis-z)" font-size="10" font-family="monospace" font-weight="bold">Z</text>
+  </svg>
+</div>
+
+<div class="card-controls-content">
+
+  <div class="recipe-card">
+    <p class="recipe-one-liner">Per-axis ellipsoid bulge at a joint — each axis swells independently as angle enters its active range.</p>
+    <dl class="recipe-io">
+      <div class="recipe-io-row"><dt>Inputs</dt><dd>Joint angle, per-axis min/max angle ranges, base radius, max bulge per axis, easing mode</dd></div>
+      <div class="recipe-io-row"><dt>Output</dt><dd>Ellipsoid radii (Rx, Ry, Rz) or scale vector — drive any volume primitive or squash/stretch</dd></div>
+    </dl>
+    <p class="recipe-intuition">Map joint angle to 0–1 per axis inside its window, ease it, then scale each radius from a rest value. Axes can activate at different angles so volume shifts realistically as the limb bends.</p>
+    <details class="formula-box recipe-core">
+      <summary>Pseudocode</summary>
+      <div class="formula-body mono"><pre>for each axis i in [X, Y, Z]:
+  t = clamp((angle - min_i) / (max_i - min_i), 0, 1)
+  progress_i = ease(t, mode)
+  R_i = r0 * (1 + maxBulge_i * progress_i)
+// apply R as ellipsoid radii or joint scale</pre></div>
+    </details>
+  </div>
+
+  <div class="axis-title">Explore</div>
+  <div class="controls">
+    <div class="slider-card">
+      <div class="slider-head"><label>Joint Angle</label><span class="slider-val mono" id="r1_jointVal">180&deg;</span></div>
+      <input type="range" id="r1_jointAngle" min="0" max="180" step="1" value="180" aria-label="Joint angle">
+    </div>
+    <label class="toggle-row"><input type="checkbox" id="animToggle1" checked aria-label="Animate flex"> Animate Flex</label>
+    <div class="slider-card">
+      <div class="slider-head"><label>Easing Mode</label></div>
+      <select id="r1_interpMode" class="rig-select" aria-label="Easing mode">
+        <option value="smooth" selected>Smooth</option>
+        <option value="linear">Linear</option>
+        <option value="slow">Ease In</option>
+        <option value="fast">Ease Out</option>
+      </select>
+    </div>
+
+    <div class="axis-title">Axis X Range (Min &harr; Max)</div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Range Active Span</label><span class="slider-val mono" id="r1_boundsX">40Â° &rarr; 160Â°</span></div>
+      <div class="dual-range-container">
+        <div class="range-track-bg"></div>
+        <div class="range-track-fill" id="r1_trackFillX"></div>
+        <input type="range" id="r1_minX" min="0" max="180" step="1" value="40" aria-label="X axis minimum range">
+        <input type="range" id="r1_maxX" min="0" max="180" step="1" value="160" aria-label="X axis maximum range">
+      </div>
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Max Bulge X</label><span class="slider-val mono" id="r1_bulgeValX">+80%</span></div>
+      <input type="range" id="r1_maxBulgeX" min="0" max="2.0" step="0.05" value="0.80" aria-label="Max bulge X axis">
+    </div>
+
+    <div class="axis-title">Axis Y Range (Min &harr; Max)</div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Range Active Span</label><span class="slider-val mono" id="r1_boundsY">40Â° &rarr; 160Â°</span></div>
+      <div class="dual-range-container">
+        <div class="range-track-bg"></div>
+        <div class="range-track-fill" id="r1_trackFillY" style="background:var(--axis-y);"></div>
+        <input type="range" id="r1_minY" min="0" max="180" step="1" value="40" aria-label="Y axis minimum range">
+        <input type="range" id="r1_maxY" min="0" max="180" step="1" value="160" aria-label="Y axis maximum range">
+      </div>
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Max Bulge Y</label><span class="slider-val mono" id="r1_bulgeValY">+40%</span></div>
+      <input type="range" id="r1_maxBulgeY" min="0" max="2.0" step="0.05" value="0.40" aria-label="Max bulge Y axis">
+    </div>
+
+    <div class="axis-title">Axis Z Range (Min &harr; Max)</div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Range Active Span</label><span class="slider-val mono" id="r1_boundsZ">40Â° &rarr; 160Â°</span></div>
+      <div class="dual-range-container">
+        <div class="range-track-bg"></div>
+        <div class="range-track-fill" id="r1_trackFillZ" style="background:var(--axis-z);"></div>
+        <input type="range" id="r1_minZ" min="0" max="180" step="1" value="40" aria-label="Z axis minimum range">
+        <input type="range" id="r1_maxZ" min="0" max="180" step="1" value="160" aria-label="Z axis maximum range">
+      </div>
+    </div>
+    <div class="slider-card">
+      <div class="slider-head"><label>Max Bulge Z</label><span class="slider-val mono" id="r1_bulgeValZ">+60%</span></div>
+      <input type="range" id="r1_maxBulgeZ" min="0" max="2.0" step="0.05" value="0.60" aria-label="Max bulge Z axis">
+    </div>
+  </div>
+
+    <details class="formula-box">
+      <summary>Full formula breakdown</summary>
+      <div class="formula-body mono">
+<pre>1. Per-Axis Dual-Range Remap (i in [X, Y, Z]):
+   t_i = clamp((theta - min_i) / (max_i - min_i), 0, 1)
+   progress_i = evaluate_easing(t_i, mode)
+
+2. 3D Ellipsoid Radii:
+   R_i = r0 * (1.0 + max_bulge_i * progress_i)
+
+3. Isometric Projection:
+   screenX = originX + (worldX - worldZ) * cos(30Â°)
+   screenY = originY + (worldX + worldZ) * sin(30Â°) - worldY
+
+4. Rotation (for elbow volume):
+   rotRad = (180Â° - angle) / 2
+   localX = worldX * cos(rotRad) - worldY * sin(rotRad)
+   localY = worldX * sin(rotRad) + worldY * cos(rotRad)</pre>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r1_node_details">
+      <summary>Node graph (Maya wiring)</summary>
+      <div class="formula-body">
+        <div class="m-graph-view m-graph-view--enhanced m-graph-view--wide" id="r1_graph_container">
+          <div class="m-canvas" id="r1_node_canvas">
+            <svg class="m-svg-layer" id="r1_node_svg"></svg>
+            
+            <!-- Input Node -->
+            <div class="m-node" style="left: 20px; top: 130px;">
+              <div class="m-header input">JointAngle</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <span class="m-label">angle</span>
+                  <div class="m-port out angle" id="r1_p_angle_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Range Nodes -->
+            <div class="m-node" style="left: 180px; top: 20px;">
+              <div class="m-header util">rangeX</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_rx_in"></div>
+                  <span class="m-label highlight-x">angle</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label highlight-x">progress</span>
+                  <div class="m-port out float" id="r1_p_rx_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 180px; top: 100px;">
+              <div class="m-header util">rangeY</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_ry_in"></div>
+                  <span class="m-label highlight-y">angle</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label highlight-y">progress</span>
+                  <div class="m-port out float" id="r1_p_ry_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 180px; top: 180px;">
+              <div class="m-header util">rangeZ</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_rz_in"></div>
+                  <span class="m-label highlight-z">angle</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label highlight-z">progress</span>
+                  <div class="m-port out float" id="r1_p_rz_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Multiply Nodes -->
+            <div class="m-node" style="left: 370px; top: 20px;">
+              <div class="m-header default">multX</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_mx_in"></div>
+                  <span class="m-label highlight-x">in</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label highlight-x">out</span>
+                  <div class="m-port out float" id="r1_p_mx_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 370px; top: 100px;">
+              <div class="m-header default">multY</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_my_in"></div>
+                  <span class="m-label highlight-y">in</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label highlight-y">out</span>
+                  <div class="m-port out float" id="r1_p_my_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="m-node" style="left: 370px; top: 180px;">
+              <div class="m-header default">multZ</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_mz_in"></div>
+                  <span class="m-label highlight-z">in</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label highlight-z">out</span>
+                  <div class="m-port out float" id="r1_p_mz_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Ellipsoid Node -->
+            <div class="m-node" style="left: 560px; top: 95px;">
+              <div class="m-header volume">ellipsoid</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_ell_rx"></div>
+                  <span class="m-label highlight-x">radX</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_ell_ry"></div>
+                  <span class="m-label highlight-y">radY</span>
+                </div>
+                <div class="m-row">
+                  <div class="m-port in float" id="r1_p_ell_rz"></div>
+                  <span class="m-label highlight-z">radZ</span>
+                </div>
+                <div class="m-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="m-label">volume</span>
+                  <div class="m-port out rgb" id="r1_p_ell_out"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Output Node -->
+            <div class="m-node" style="left: 760px; top: 130px;">
+              <div class="m-header output">Deform</div>
+              <div class="m-body">
+                <div class="m-row">
+                  <div class="m-port in rgb" id="r1_p_deform_in"></div>
+                  <span class="m-label">volume</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="formula-box" id="r1_maya_details">
+      <summary>Maya adapter script</summary>
+      <div class="formula-body mono code-block-wrapper">
+        <button class="copy-btn" id="copyScriptBtn1" aria-label="Copy Maya script to clipboard">Copy</button>
+<pre id="mayaScript1">import maya.cmds as cmds
+import math
+
+def build_volume_rig():
+    name = "VolumeRig"
+    if cmds.objExists(name): cmds.delete(name)
+    
+    root = cmds.group(em=True, name=name)
+    
+    # Create joints
+    shoulder = cmds.joint(name=f"{name}_Shoulder", p=(-72, 0, 0))
+    elbow = cmds.joint(name=f"{name}_Elbow", p=(88, 0, 0))
+    wrist = cmds.joint(name=f"{name}_Wrist", p=(248, 0, 0))
+    
+    # Create volume locator at elbow
+    volume = cmds.spaceLocator(name=f"{name}_Volume")[0]
+    cmds.parent(volume, elbow)
+    cmds.setAttr(f"{volume}.translate", 0, 0, 0)
+    
+    # Settings node
+    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
+    cmds.parent(settings, root)
+    cmds.setAttr(f"{settings}.visibility", 0)
+    
+    # Add attributes
+    attrs = [
+        ("maxBulgeX", 0.8, 0.0, 2.0),
+        ("maxBulgeY", 0.4, 0.0, 2.0),
+        ("maxBulgeZ", 0.6, 0.0, 2.0),
+        ("minX", 40.0, 0.0, 180.0),
+        ("maxX", 160.0, 0.0, 180.0),
+        ("minY", 40.0, 0.0, 180.0),
+        ("maxY", 160.0, 0.0, 180.0),
+        ("minZ", 40.0, 0.0, 180.0),
+        ("maxZ", 160.0, 0.0, 180.0)
+    ]
+    
+    for attr, dv, minv, maxv in attrs:
+        cmds.addAttr(settings, ln=attr, at="float", dv=dv, min=minv, max=maxv, k=True)
+    
+    # Angle control
+    angle_ctrl = cmds.spaceLocator(name=f"{name}_AngleCtrl")[0]
+    cmds.parent(angle_ctrl, root)
+    cmds.addAttr(angle_ctrl, ln="angle", at="float", dv=180, min=0, max=180, k=True)
+    
+    # Set up joint rotation
+    cmds.parentConstraint(angle_ctrl, elbow, mo=True, skipRotate=['x','z'])
+    
+    # Expression for volume scaling
+    expr = f'''
+// Volume deformation expression
+float $angle = {angle_ctrl}.angle;
+
+// Range remap for X
+float $tX = clamp(($angle - {settings}.minX) / ({settings}.maxX - {settings}.minX), 0, 1);
+float $progressX = $tX * $tX * (3 - 2 * $tX);
+
+// Range remap for Y
+float $tY = clamp(($angle - {settings}.minY) / ({settings}.maxY - {settings}.minY), 0, 1);
+float $progressY = $tY * $tY * (3 - 2 * $tY);
+
+// Range remap for Z
+float $tZ = clamp(($angle - {settings}.minZ) / ({settings}.maxZ - {settings}.minZ), 0, 1);
+float $progressZ = $tZ * $tZ * (3 - 2 * $tZ);
+
+// Scale volume
+{volume}.scaleX = 1 + {settings}.maxBulgeX * $progressX;
+{volume}.scaleY = 1 + {settings}.maxBulgeY * $progressY;
+{volume}.scaleZ = 1 + {settings}.maxBulgeZ * $progressZ;
+'''
+    cmds.expression(s=expr, name=f"{name}_VolumeExpr")
+    
+    # Group
+    cmds.select(root)
+    cmds.group(name=f"{name}_Grp")
+
+build_volume_rig()</pre>
+      </div>
+    </details>
+
+  <script>
+    (function(){
+      // ============================================
+      // CONSTANTS
+      // ============================================
+      const VOLUME_CONSTANTS = {
+        ORIGIN_X: 310,
+        ORIGIN_Y: 230,
+        COS30: Math.cos(Math.PI / 6),
+        SIN30: Math.sin(Math.PI / 6),
+        BONE_LENGTH: 160,
+        BONE_OFFSET: 160 * 0.45,
+        RADIUS_BASE: 40,
+        GRID_STEPS: 7,
+        GRID_SPACING: 45,
+        GRID_MIN: -100,
+        GRID_MAX: 320,
+        SEGMENTS: 32,
+        ANIMATION_DURATION: 10000,
+        MIN_ANGLE: 0,
+        MAX_ANGLE: 180,
+        NODE_GRAPH_PADDING: 15
+      };
+
+      const { ORIGIN_X, ORIGIN_Y, COS30, SIN30, BONE_LENGTH, BONE_OFFSET, RADIUS_BASE, 
+              GRID_STEPS, GRID_SPACING, GRID_MIN, GRID_MAX, SEGMENTS, ANIMATION_DURATION,
+              MIN_ANGLE, MAX_ANGLE, NODE_GRAPH_PADDING } = VOLUME_CONSTANTS;
+
+      // ============================================
+      // UTILITY FUNCTIONS
+      // ============================================
+      const round = (v, n) => Number(v.toFixed(n));
+
+      function projectIso(x, y, z) {
+        return {
+          x: ORIGIN_X + (x - z) * COS30,
+          y: ORIGIN_Y + (x + z) * SIN30 - y
+        };
+      }
+
+      function getPoint(x, y) {
+        return { x, y };
+      }
+
+      function getEasedValue(t, mode) {
+        switch(mode) {
+          case 'linear': return t;
+          case 'slow': return t * t;
+          case 'fast': return 1.0 - Math.pow(1.0 - t, 2);
+          default: return t * t * (3.0 - 2.0 * t);
+        }
+      }
+
+      function calcProgress(curAngle, minA, maxA, mode) {
+        const t = Math.max(0, Math.min(1, (maxA - curAngle) / (maxA - minA)));
+        return getEasedValue(t, mode);
+      }
+
+      // ============================================
+      // DOM REFS
+      // ============================================
+      const dom = {
+        grid: document.getElementById('r1_isoGrid'),
+        jointAngle: document.getElementById('r1_jointAngle'),
+        interpMode: document.getElementById('r1_interpMode'),
+        minX: document.getElementById('r1_minX'),
+        maxX: document.getElementById('r1_maxX'),
+        minY: document.getElementById('r1_minY'),
+        maxY: document.getElementById('r1_maxY'),
+        minZ: document.getElementById('r1_minZ'),
+        maxZ: document.getElementById('r1_maxZ'),
+        maxBulgeX: document.getElementById('r1_maxBulgeX'),
+        maxBulgeY: document.getElementById('r1_maxBulgeY'),
+        maxBulgeZ: document.getElementById('r1_maxBulgeZ'),
+        jointVal: document.getElementById('r1_jointVal'),
+        boundsX: document.getElementById('r1_boundsX'),
+        boundsY: document.getElementById('r1_boundsY'),
+        boundsZ: document.getElementById('r1_boundsZ'),
+        bulgeValX: document.getElementById('r1_bulgeValX'),
+        bulgeValY: document.getElementById('r1_bulgeValY'),
+        bulgeValZ: document.getElementById('r1_bulgeValZ'),
+        trackFillX: document.getElementById('r1_trackFillX'),
+        trackFillY: document.getElementById('r1_trackFillY'),
+        trackFillZ: document.getElementById('r1_trackFillZ'),
+        animToggle: document.getElementById('animToggle1'),
+        boneUpper: document.getElementById('r1_boneUpper'),
+        boneForearm: document.getElementById('r1_boneForearm'),
+        jointShoulder: document.getElementById('r1_jointShoulder'),
+        jointElbow: document.getElementById('r1_jointElbow'),
+        jointWrist: document.getElementById('r1_jointWrist'),
+        ribXY: document.getElementById('r1_ribXY'),
+        ribXZ: document.getElementById('r1_ribXZ'),
+        ribYZ: document.getElementById('r1_ribYZ'),
+        ellipHull: document.getElementById('r1_ellipHull'),
+        axisX: document.getElementById('r1_axisX'),
+        axisY: document.getElementById('r1_axisY'),
+        axisZ: document.getElementById('r1_axisZ'),
+        labelX: document.getElementById('r1_labelX'),
+        labelY: document.getElementById('r1_labelY'),
+        labelZ: document.getElementById('r1_labelZ'),
+        copyBtn: document.getElementById('copyScriptBtn1'),
+        mayaScript: document.getElementById('mayaScript1'),
+        nodeDetails: document.getElementById('r1_node_details'),
+        graphContainer: document.getElementById('r1_graph_container'),
+        nodeCanvas: document.getElementById('r1_node_canvas'),
+        svgCanvas: document.getElementById('r1_node_svg')
+      };
+
+      // ============================================
+      // GRID GENERATION
+      // ============================================
+      function generateGrid() {
+        const { grid } = dom;
+        if (!grid) return;
+        
+        let gd = '';
+        // Vertical grid lines
+        for (let i = -GRID_STEPS; i <= GRID_STEPS; i++) {
+          const z = i * GRID_SPACING;
+          const p1 = projectIso(GRID_MIN, 0, z);
+          const p2 = projectIso(GRID_MAX, 0, z);
+          gd += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" opacity="${i === 0 ? 0.15 : 0.06}"/>`;
+        }
+        // Horizontal grid lines (depth cues)
+        for (let i = -GRID_STEPS; i <= GRID_STEPS; i++) {
+          const x = i * GRID_SPACING;
+          const p1 = projectIso(x, 0, GRID_MIN);
+          const p2 = projectIso(x, 0, GRID_MAX);
+          gd += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" opacity="${i === 0 ? 0.15 : 0.06}"/>`;
+        }
+        grid.innerHTML = gd;
+      }
+      generateGrid();
+
+      const nodeGraph = CardCommon.setupNodeGraph({
+        detailsEl: dom.nodeDetails,
+        containerEl: dom.graphContainer,
+        canvasEl: dom.nodeCanvas,
+        svgEl: dom.svgCanvas,
+        enhanced: true,
+        openDelay: 100,
+        connections: [
+          { from: 'r1_p_angle_out', to: 'r1_p_rx_in', color: '#ffaa55' },
+          { from: 'r1_p_angle_out', to: 'r1_p_ry_in', color: '#ffaa55' },
+          { from: 'r1_p_angle_out', to: 'r1_p_rz_in', color: '#ffaa55' },
+          { from: 'r1_p_rx_out', to: 'r1_p_mx_in', color: 'var(--axis-x)' },
+          { from: 'r1_p_ry_out', to: 'r1_p_my_in', color: 'var(--axis-y)' },
+          { from: 'r1_p_rz_out', to: 'r1_p_mz_in', color: 'var(--axis-z)' },
+          { from: 'r1_p_mx_out', to: 'r1_p_ell_rx', color: 'var(--axis-x)' },
+          { from: 'r1_p_my_out', to: 'r1_p_ell_ry', color: 'var(--axis-y)' },
+          { from: 'r1_p_mz_out', to: 'r1_p_ell_rz', color: 'var(--axis-z)' },
+          { from: 'r1_p_ell_out', to: 'r1_p_deform_in', color: '#88ddff' }
+        ]
+      });
+      CardCommon.setupCopyButton(dom.copyBtn, dom.mayaScript);
+
+      // ============================================
+      // DUAL RANGE HANDLER
+      // ============================================
+      function handleDualRangeInput(minId, maxId, fillId, readoutId, activeId) {
+        const minInput = document.getElementById(minId);
+        const maxInput = document.getElementById(maxId);
+        if (!minInput || !maxInput) return { min: 0, max: 0 };
+
+        let minVal = parseInt(minInput.value, 10);
+        let maxVal = parseInt(maxInput.value, 10);
+        
+        if (minVal > maxVal) {
+          if (activeId === minId) {
+            minInput.value = maxVal;
+            minVal = maxVal;
+          } else {
+            maxInput.value = minVal;
+            maxVal = minVal;
+          }
+        }
+        
+        const pctMin = (minVal / MAX_ANGLE) * 100;
+        const pctMax = (maxVal / MAX_ANGLE) * 100;
+        
+        const fill = document.getElementById(fillId);
+        if (fill) {
+          fill.style.left = pctMin + '%';
+          fill.style.width = (pctMax - pctMin) + '%';
+        }
+        
+        const ro = document.getElementById(readoutId);
+        if (ro) ro.textContent = `${minVal}Â° â†’ ${maxVal}Â°`;
+        
+        return { min: minVal, max: maxVal };
+      }
+
+      // ============================================
+      // VOLUME UPDATE
+      // ============================================
+      function computeIsoPaths(center, rx, ry, rz, rotDeg) {
+        const rotRad = rotDeg * Math.PI / 180;
+        const cRot = Math.cos(rotRad);
+        const sRot = Math.sin(rotRad);
+
+        function pt(u, v) {
+          const lx = rx * Math.cos(u) * Math.sin(v);
+          const ly = ry * Math.sin(u) * Math.sin(v);
+          const lz = rz * Math.cos(v);
+          
+          const worldX = center.x + (lx * cRot - ly * sRot);
+          const worldY = center.y + (lx * sRot + ly * cRot);
+          const worldZ = center.z + lz;
+          
+          return projectIso(worldX, worldY, worldZ);
+        }
+
+        let dXY = '', dXZ = '', dYZ = '';
+        
+        for (let i = 0; i <= SEGMENTS; i++) {
+          const a = (i / SEGMENTS) * Math.PI * 2;
+          const pXY = pt(a, Math.PI / 2);
+          const pXZ = pt(0, a);
+          const pYZ = pt(Math.PI / 2, a);
+          
+          dXY += (i === 0 ? `M ${pXY.x} ${pXY.y}` : ` L ${pXY.x} ${pXY.y}`);
+          dXZ += (i === 0 ? `M ${pXZ.x} ${pXZ.y}` : ` L ${pXZ.x} ${pXZ.y}`);
+          dYZ += (i === 0 ? `M ${pYZ.x} ${pYZ.y}` : ` L ${pYZ.x} ${pYZ.y}`);
+        }
+        
+        return { dXY, dXZ, dYZ };
+      }
+
+      function updateVolume(force = false) {
+        const { jointAngle, interpMode, maxBulgeX, maxBulgeY, maxBulgeZ } = dom;
+        if (!jointAngle || !interpMode || !maxBulgeX || !maxBulgeY || !maxBulgeZ) return;
+
+        const theta = parseFloat(jointAngle.value);
+        const mode = interpMode.value;
+        const bX = parseFloat(maxBulgeX.value);
+        const bY = parseFloat(maxBulgeY.value);
+        const bZ = parseFloat(maxBulgeZ.value);
+
+        // Update displays
+        dom.jointVal.textContent = `${round(theta, 0)}Â°`;
+        dom.bulgeValX.textContent = `+${round(bX * 100, 0)}%`;
+        dom.bulgeValY.textContent = `+${round(bY * 100, 0)}%`;
+        dom.bulgeValZ.textContent = `+${round(bZ * 100, 0)}%`;
+
+        // Handle ranges
+        const rangeX = handleDualRangeInput('r1_minX', 'r1_maxX', 'r1_trackFillX', 'r1_boundsX', window._r1_lastActive);
+        const rangeY = handleDualRangeInput('r1_minY', 'r1_maxY', 'r1_trackFillY', 'r1_boundsY', window._r1_lastActive);
+        const rangeZ = handleDualRangeInput('r1_minZ', 'r1_maxZ', 'r1_trackFillZ', 'r1_boundsZ', window._r1_lastActive);
+
+        // Calculate progress per axis
+        const progX = calcProgress(theta, rangeX.min, rangeX.max, mode);
+        const progY = calcProgress(theta, rangeY.min, rangeY.max, mode);
+        const progZ = calcProgress(theta, rangeZ.min, rangeZ.max, mode);
+
+        // Calculate joint positions
+        const deltaFlex = MAX_ANGLE - theta;
+        const deltaFlexRad = deltaFlex * Math.PI / 180;
+        
+        const J0 = { x: -BONE_OFFSET, y: 0, z: 0 };
+        const J1 = { x: J0.x + BONE_LENGTH, y: 0, z: 0 };
+        const J2 = {
+          x: J1.x + BONE_LENGTH * Math.cos(deltaFlexRad),
+          y: J1.y + BONE_LENGTH * Math.sin(deltaFlexRad),
+          z: 0
+        };
+
+        const p0 = projectIso(J0.x, J0.y, J0.z);
+        const p1 = projectIso(J1.x, J1.y, J1.z);
+        const p2 = projectIso(J2.x, J2.y, J2.z);
+
+        // Update bones
+        dom.boneUpper.setAttribute('x1', p0.x);
+        dom.boneUpper.setAttribute('y1', p0.y);
+        dom.boneUpper.setAttribute('x2', p1.x);
+        dom.boneUpper.setAttribute('y2', p1.y);
+
+        dom.boneForearm.setAttribute('x1', p1.x);
+        dom.boneForearm.setAttribute('y1', p1.y);
+        dom.boneForearm.setAttribute('x2', p2.x);
+        dom.boneForearm.setAttribute('y2', p2.y);
+
+        // Update joints
+        dom.jointShoulder.setAttribute('cx', p0.x);
+        dom.jointShoulder.setAttribute('cy', p0.y);
+        dom.jointElbow.setAttribute('cx', p1.x);
+        dom.jointElbow.setAttribute('cy', p1.y);
+        dom.jointWrist.setAttribute('cx', p2.x);
+        dom.jointWrist.setAttribute('cy', p2.y);
+
+        // Calculate ellipsoid
+        const rx = RADIUS_BASE * (1 + bX * progX);
+        const ry = RADIUS_BASE * (1 + bY * progY);
+        const rz = RADIUS_BASE * (1 + bZ * progZ);
+        const rotDeg = deltaFlex / 2;
+
+        const ribs = computeIsoPaths(J1, rx, ry, rz, rotDeg);
+        dom.ribXY.setAttribute('d', ribs.dXY);
+        dom.ribXZ.setAttribute('d', ribs.dXZ);
+        dom.ribYZ.setAttribute('d', ribs.dYZ);
+        dom.ellipHull.setAttribute('d', ribs.dXY);
+
+        // Update axes
+        const rotRad = rotDeg * Math.PI / 180;
+        const axisLen = 16;
+        const pX = projectIso(
+          J1.x + Math.cos(rotRad) * (rx + axisLen),
+          J1.y + Math.sin(rotRad) * (rx + axisLen),
+          0
+        );
+        const pY = projectIso(
+          J1.x - Math.sin(rotRad) * (ry + axisLen),
+          J1.y + Math.cos(rotRad) * (ry + axisLen),
+          0
+        );
+        const pZ = projectIso(
+          J1.x,
+          J1.y,
+          J1.z + (rz + axisLen)
+        );
+
+        dom.axisX.setAttribute('x1', p1.x);
+        dom.axisX.setAttribute('y1', p1.y);
+        dom.axisX.setAttribute('x2', pX.x);
+        dom.axisX.setAttribute('y2', pX.y);
+
+        dom.axisY.setAttribute('x1', p1.x);
+        dom.axisY.setAttribute('y1', p1.y);
+        dom.axisY.setAttribute('x2', pY.x);
+        dom.axisY.setAttribute('y2', pY.y);
+
+        dom.axisZ.setAttribute('x1', p1.x);
+        dom.axisZ.setAttribute('y1', p1.y);
+        dom.axisZ.setAttribute('x2', pZ.x);
+        dom.axisZ.setAttribute('y2', pZ.y);
+
+        // Update labels
+        dom.labelX.setAttribute('x', pX.x + 4);
+        dom.labelX.setAttribute('y', pX.y - 4);
+        dom.labelY.setAttribute('x', pY.x + 4);
+        dom.labelY.setAttribute('y', pY.y - 4);
+        dom.labelZ.setAttribute('x', pZ.x + 4);
+        dom.labelZ.setAttribute('y', pZ.y - 4);
+      }
+
+      // ============================================
+      // ANIMATION LOOP
+      // ============================================
+      let animationId = null;
+      let isAnimating = true;
+
+      function tick(timestamp) {
+        const { animToggle, jointAngle } = dom;
+        if (!animToggle || !jointAngle) {
+          animationId = requestAnimationFrame(tick);
+          return;
+        }
+
+        if (animToggle.checked && isAnimating) {
+          const phase = (timestamp % ANIMATION_DURATION) / ANIMATION_DURATION;
+          const eased = (1 - Math.cos(phase * 2 * Math.PI)) / 2;
+          jointAngle.value = (MAX_ANGLE - MAX_ANGLE * eased).toFixed(0);
+          updateVolume(false);
+        }
+
+        animationId = requestAnimationFrame(tick);
+      }
+
+      function stopAnimation() {
+        isAnimating = false;
+      }
+
+      function startAnimation() {
+        isAnimating = true;
+      }
+
+      // ============================================
+      // EVENT SETUP
+      // ============================================
+      function setupEvents() {
+        const { jointAngle, interpMode, minX, maxX, minY, maxY, minZ, maxZ,
+                maxBulgeX, maxBulgeY, maxBulgeZ, animToggle } = dom;
+
+        const sliderIds = ['jointAngle', 'interpMode', 'minX', 'maxX', 'minY', 'maxY',
+                          'minZ', 'maxZ', 'maxBulgeX', 'maxBulgeY', 'maxBulgeZ'];
+        
+        sliderIds.forEach(id => {
+          const el = document.getElementById(`r1_${id}`);
+          if (el) {
+            el.addEventListener('input', (e) => {
+              window._r1_lastActive = e.target.id;
+              updateVolume(true);
+            }, { passive: true });
+          }
+        });
+
+        if (jointAngle && animToggle) {
+          jointAngle.addEventListener('pointerdown', () => {
+            animToggle.checked = false;
+            startAnimation();
+          }, { passive: true });
+        }
+
+        if (animToggle) {
+          animToggle.addEventListener('change', function() {
+            if (this.checked) {
+              startAnimation();
+            } else {
+              stopAnimation();
+            }
+          }, { passive: true });
+        }
+
+        updateVolume(true);
+      }
+
+      // ============================================
+      // INITIALIZATION
+      // ============================================
+      function init() {
+        setupEvents();
+        animationId = requestAnimationFrame(tick);
+      }
+
+      window.addEventListener('beforeunload', function() {
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+        }
+        nodeGraph.disconnect();
+      }, { passive: true });
+
+      init();
+
+    })();
+  </script>
+</div>
+</body>
+</html>
