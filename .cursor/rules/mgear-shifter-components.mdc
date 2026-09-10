@@ -1,0 +1,86 @@
+---
+description: Facts and hard-won lessons for authoring mGear Shifter components in tools/maya/shifter_components
+globs: tools/maya/shifter_components/**
+alwaysApply: false
+---
+
+# Authoring mGear Shifter components
+
+Reference source (read-only, never edit): `C:\Users\andre\Documents\GitHub\mgear\release\scripts\mgear`.
+Closest stock template for our components: `shifter_classic_components/hydraulic_01`.
+
+## How Shifter finds a component
+
+- `MGEAR_SHIFTER_COMPONENT_PATH` must point at the **parent** folder (`tools/maya/shifter_components`),
+  not at the component folder. Multiple paths are `os.pathsep`-separated.
+- Every direct subfolder of that path is treated as a component and must contain `__init__.py`
+  (with `class Component(component.Main)`) and `guide.py` (with `class Guide(guide.ComponentGuide)`).
+- The Guide Manager lists `guide.TYPE`, so `TYPE` must equal the folder name. `icon.jpg` is unused.
+- Shifter caches component dirs and modules. After adding or renaming a component call
+  `mgear.shifter.clearComponentCache()` (or restart Maya) or the list will not refresh.
+
+## Iteration loop
+
+Shifter draws guides and builds rigs fine under `maya.standalone`, so every change gets a real
+build before it ever reaches the GUI. Run this after each edit:
+
+```powershell
+$env:MAYA_MODULE_PATH="C:\Users\andre\Documents\GitHub\mgear\release"
+cd tools\maya\shifter_components
+& "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" smoke_build.py
+```
+
+`smoke_build.py` draws a guide, builds, and asserts rig behaviour. Add a case there for every
+bug found, then fix it. Pure maths lives in a Maya-free module with a `test_*.py` beside it
+(`mayapy test_bow_math.py`) so the geometry can be checked in a second.
+
+In an interactive Maya session, `register.register()` re-registers the path, flushes our modules
+and clears Shifter's caches. Then redraw the guide and rebuild.
+
+Record what broke in **Lessons** below in the same change as the fix.
+
+## API facts worth not re-deriving
+
+- `guide.postInit` sets `save_transform` / `save_blade`; names there must match what `addObjects` creates.
+- `self.settings["x"]` in the Component reads the guide param `x` added via `addParam` in `addParameters`.
+- Joints: append `[transform, index]` to `self.jnt_pos`; Shifter builds the joint chain from that.
+- `addAnimParam` -> keyable anim attr on the UI host. `addSetupParam` -> non-keyable TD attr.
+- `transform.getTransformLookingAt(pos, lookAt, normal, axis="xy", negate=...)`: the first axis
+  letter points at `lookAt`, the second aligns to `normal`.
+- The blade icon is drawn in its local XY plane with the flag toward **+Y**, so
+  `self.guide.blades["blade"].y` is the direction the rigger visually aimed the flag.
+
+## Lessons
+
+Append a dated one-liner per mistake. Never delete entries.
+
+- 2026-09-09 The standalone `tools/maya/in_between` bounded bow both rotates the bulge plane by
+  `bendAngle` *and* scales height by `cos(bendAngle)`. The cosine is a 2D-projection artifact of the
+  HTML card; in 3D it double-counts and kills the bulge at 90 deg. Rotate the plane only.
+- 2026-09-09 `angleBetween.angle` is a `doubleAngle`. Connecting it to a plain `double` makes Maya
+  insert a `unitConversion`, so the downstream number is in UI units, not radians. Keep the compared
+  threshold attr as `doubleAngle` too so both sides get the same conversion.
+- 2026-09-09 World-space `distanceBetween` includes the rig global-control scale. Measure in the
+  component root's local space (`mulMatrix` by `root.worldInverseMatrix`) so the drive is scale-safe.
+- 2026-09-09 `addAnimParam` attrs do **not** land on the component's own control. They go on
+  `self.uihost` (the parent component's ctl, e.g. `global_C0_ctl` for a root-parented component)
+  and are prefixed with the component name: `bulge` becomes `boundedBow_bulge`. `addSetupParam`
+  attrs go on the component root *inside the rig*, not the guide root. Search by attribute, never
+  by a guessed node path.
+- 2026-09-09 `node.createPlusMinusAverage1D` feeds constants through a `try connectAttr /
+  except RuntimeError setAttr` path. Set literal constants explicitly instead of trusting it.
+- 2026-09-10 "Joints keep the previous position after a rebuild" is almost never the component.
+  The guide root option **Connect Joints** (on by default) makes `Rig.buildJointCache()` snapshot
+  every joint name in the scene, and `_addJoint` then reuses a name match via the `keep_off=True`
+  path, which moves an offset transform to the joint rather than the joint to the driver. Any joint
+  that outlives its rig pins the next build to the old pose: controls look right, joints do not.
+  Reproduced identically on stock `hydraulic_01`. Fix is to delete the leftover joints or turn
+  Connect Joints off, not to change component code.
+- 2026-09-10 `addJoint(guide_relative=...)` is only metadata for the match-guide-to-joint tool.
+  It does not reposition a reused joint, so it is no help against the above.
+- 2026-09-10 Before blaming our code for a build oddity, run the same scenario on the nearest stock
+  component in `diag`-style throwaway script. It took one run to clear the component of a bug.
+- 2026-09-10 For any list-of-scene-objects setting, copy the stock IK Reference Array layout
+  (`arm_2jnt_01/settingsUI.py`): list on the left, `<<` / `>>` stacked on the right, plus
+  `InternalMove` drag reordering. A plain list with buttons underneath reads as having no
+  "add selected" action at all.

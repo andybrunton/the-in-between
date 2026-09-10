@@ -241,91 +241,14 @@ Given:
       </div>
     </details>
 
-    <details class="formula-box" id="r2_maya_details">
-      <summary>Maya adapter script</summary>
-      <div class="formula-body mono code-block-wrapper">
-        <button class="copy-btn" id="copyScriptBtn2" aria-label="Copy Maya script to clipboard">Copy</button>
-<pre id="mayaScript2">import maya.cmds as cmds
-import math
-
-def build_angle_push_rig():
-    name = "AnglePushRig"
-    if cmds.objExists(name): cmds.delete(name)
-    
-    root = cmds.group(em=True, name=name)
-    
-    # Create joints - centered in view
-    shoulder = cmds.joint(name=f"{name}_Shoulder", p=(-150, 0, 0))
-    elbow = cmds.joint(name=f"{name}_Elbow", p=(0, 0, 0))
-    wrist = cmds.joint(name=f"{name}_Wrist", p=(150, 0, 0))
-    
-    # Create volume locator at elbow
-    volume = cmds.spaceLocator(name=f"{name}_Volume")[0]
-    cmds.parent(volume, elbow)
-    cmds.setAttr(f"{volume}.translate", 0, 0, 0)
-    
-    # Settings node
-    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
-    cmds.parent(settings, root)
-    cmds.setAttr(f"{settings}.visibility", 0)
-    
-    # Add attributes
-    cmds.addAttr(settings, ln="pushRatio", at="float", dv=1.0, min=0, max=1.2, k=True)
-    cmds.addAttr(settings, ln="orientBlend", at="float", dv=0.15, min=0, max=1, k=True)
-    cmds.addAttr(settings, ln="scaleX", at="float", dv=0.65, min=0, max=1, k=True)
-    cmds.addAttr(settings, ln="radius", at="float", dv=38, min=12, max=64, k=True)
-    
-    # Angle control
-    angle_ctrl = cmds.spaceLocator(name=f"{name}_AngleCtrl")[0]
-    cmds.parent(angle_ctrl, root)
-    cmds.addAttr(angle_ctrl, ln="angle", at="float", dv=155, min=15, max=180, k=True)
-    
-    # Set up joint rotation
-    cmds.parentConstraint(angle_ctrl, elbow, mo=True, skipRotate=['x','z'])
-    
-    # Expression for push deformation
-    expr = f'''
-// Angle push deformation
-float $angle = {angle_ctrl}.angle;
-float $delta = 180 - $angle;
-float $halfRad = ($delta * 3.14159) / 360;
-
-// Bisector direction
-vector $v1 = `getAttr {shoulder}.translate` - `getAttr {elbow}.translate`;
-vector $v2 = `getAttr {wrist}.translate` - `getAttr {elbow}.translate`;
-vector $vBis = unit($v1 + $v2);
-
-// Push distance
-float $pushDist = 150 * {settings}.pushRatio * sin($halfRad);
-vector $center = `getAttr {elbow}.translate` + $vBis * $pushDist;
-
-// Orientation blend
-float $bisAngle = atan2($vBis.y, $vBis.x) + 3.14159/2;
-float $chordAngle = atan2(`getAttr {wrist}.ty` - `getAttr {shoulder}.ty`, 
-                         `getAttr {wrist}.tx` - `getAttr {shoulder}.tx`);
-float $orientAngle = $bisAngle * (1 - {settings}.orientBlend) + $chordAngle * {settings}.orientBlend;
-
-// Squash
-float $squash = 1 - 0.85 * ($delta/180) * {settings}.scaleX;
-
-// Set volume transform
-{volume}.translateX = $center.x;
-{volume}.translateY = $center.y;
-{volume}.scaleX = {settings}.radius * max(0.15, $squash) / {settings}.radius;
-{volume}.scaleY = 1;
-{volume}.rotateZ = $orientAngle * 180 / 3.14159;
-'''
-    cmds.expression(s=expr, name=f"{name}_PushExpr")
-    
-    # Group
-    cmds.select(root)
-    cmds.group(name=f"{name}_Grp")
-
-build_angle_push_rig()</pre>
+        <details class="formula-box">
+      <summary>Maya companion tool</summary>
+      <div class="formula-body">
+        <p class="recipe-intuition">Build this behaviour with the unified In-Between Maya tool (<code>tools/maya/</code>). Assign your existing start/end transforms, optional parent groups — then build an exportable joint chain. Multiple rigs per scene are supported.</p>
+        <p class="recipe-intuition" style="margin-top:8px;">Drag <code>tools/maya/install_shelf.py</code> or <code>tools/maya/install_in_between.mel</code> into the Maya viewport to add a shelf button. Or run <code>tools/maya/run_in_between.py</code> manually.</p>
       </div>
     </details>
-
-  <script>
+<script>
     (function(){
       // ============================================
       // CONSTANTS
@@ -383,8 +306,6 @@ build_angle_push_rig()</pre>
         ellipHull: document.getElementById('r2_ellipHull'),
         axisX: document.getElementById('r2_axisX'),
         axisY: document.getElementById('r2_axisY'),
-        copyBtn: document.getElementById('copyScriptBtn2'),
-        mayaScript: document.getElementById('mayaScript2'),
         nodeDetails: document.getElementById('r2_node_details'),
         graphContainer: document.getElementById('r2_graph_container'),
         nodeCanvas: document.getElementById('r2_node_canvas'),
@@ -410,7 +331,6 @@ build_angle_push_rig()</pre>
           { from: 'r2_p_squash_out', to: 'r2_p_deform_squash', color: 'var(--axis-y)' }
         ]
       });
-      CardCommon.setupCopyButton(dom.copyBtn, dom.mayaScript);
 
       // ============================================
       // SET LINE/ CIRCLE HELPERS

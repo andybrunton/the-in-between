@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <body>
 <div class="card-stage-content">
@@ -213,103 +213,14 @@ SPLINE BEND (Simplified):
       </div>
     </details>
 
-    <details class="formula-box" id="r3_maya_details">
-      <summary>Maya adapter script</summary>
-      <div class="formula-body mono code-block-wrapper">
-        <button class="copy-btn" id="copyScriptBtn3" aria-label="Copy Maya script to clipboard">Copy</button>
-<pre id="mayaScript3">import maya.cmds as cmds
-import math
-
-def build_cape_rig():
-    name = "CapeRig"
-    if cmds.objExists(name): cmds.delete(name)
-    
-    root = cmds.group(em=True, name=name)
-    root_joint = cmds.joint(name=f"{name}_Root", p=(0, 0, 0))
-    
-    num_joints = 16
-    joints = [root_joint]
-    for i in range(1, num_joints + 1):
-        u = i / float(num_joints + 1)
-        x = u * 520 - 260
-        jnt = cmds.joint(name=f"{name}_Joint_{i}", p=(x, 0, 0))
-        cmds.parent(jnt, joints[-1])
-        joints.append(jnt)
-    
-    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
-    cmds.parent(settings, root)
-    cmds.setAttr(f"{settings}.visibility", 0)
-    
-    cmds.addAttr(settings, ln="amp", at="float", dv=48, min=0, max=75, k=True)
-    cmds.addAttr(settings, ln="freq", at="float", dv=1.75, min=0.25, max=4.0, k=True)
-    cmds.addAttr(settings, ln="steepness", at="float", dv=0.75, min=0, max=1, k=True)
-    cmds.addAttr(settings, ln="complexity", at="float", dv=0.5, min=0, max=1, k=True)
-    cmds.addAttr(settings, ln="phase", at="float", dv=0, min=0, max=360, k=True)
-    cmds.addAttr(settings, ln="boundaryMode", at="enum", en="freestart:freeend:pinned", dv=1, k=True)
-    
-    expr = f'''
-float $phase = {settings}.phase * 3.14159 / 180;
-int $mode = {settings}.boundaryMode;
-float $amp = {settings}.amp;
-float $freq = {settings}.freq;
-float $steep = {settings}.steepness;
-float $complex = {settings}.complexity;
-
-float $baseOffset = $complex * 2 * 3.14159;
-float $phaseOffsets[4];
-$phaseOffsets[0] = 0;
-$phaseOffsets[1] = $baseOffset * 0.5;
-$phaseOffsets[2] = $baseOffset * 0.8;
-$phaseOffsets[3] = $baseOffset * 1.2;
-
-float $weights[4];
-$weights[0] = 1.0;
-$weights[1] = clamp(($complex - 0.00) / 0.33, 0, 1);
-$weights[2] = clamp(($complex - 0.33) / 0.33, 0, 1);
-$weights[3] = clamp(($complex - 0.66) / 0.34, 0, 1);
-
-float $mult[4];
-$mult[0] = 1;
-$mult[1] = 2;
-$mult[2] = 3;
-$mult[3] = 4;
-
-float $ampMult[4];
-$ampMult[0] = 1;
-$ampMult[1] = 0.5;
-$ampMult[2] = 0.33;
-$ampMult[3] = 0.25;
-
-float $L = 520;
-for ($i = 1; $i <= 16; $i++) {{
-    float $u = $i / 17.0;
-    float $x = $u * $L - 260;
-    float $amp_u;
-    if ($mode == 0) {{ $amp_u = 1 - $u; }}
-    else if ($mode == 2) {{ $amp_u = 4 * $u * (1 - $u); }}
-    else {{ $amp_u = $u; }}
-    
-    float $dx = 0; float $dy = 0;
-    for ($h = 0; $h < 4; $h++) {{
-        float $k = (2 * 3.14159 * $freq * $mult[$h]) / $L;
-        float $theta = $k * ($u * $L) - $phase + $phaseOffsets[$h];
-        float $hAmp = $amp * $ampMult[$h] * $weights[$h];
-        $dx += -$steep * $hAmp * $amp_u * sin($theta);
-        $dy += -$hAmp * $amp_u * cos($theta);
-    }}
-    setAttr "{name}_Joint_$i.translateX" ($x + $dx);
-    setAttr "{name}_Joint_$i.translateY" $dy;
-}}
-'''
-    cmds.expression(s=expr, name=f"{name}_WaveExpr")
-    cmds.select(root)
-    cmds.group(name=f"{name}_Grp")
-
-build_cape_rig()</pre>
+        <details class="formula-box">
+      <summary>Maya companion tool</summary>
+      <div class="formula-body">
+        <p class="recipe-intuition">Build this behaviour with the unified In-Between Maya tool (<code>tools/maya/</code>). Assign your existing start/end transforms, optional parent groups — then build an exportable joint chain. Multiple rigs per scene are supported.</p>
+        <p class="recipe-intuition" style="margin-top:8px;">Drag <code>tools/maya/install_shelf.py</code> or <code>tools/maya/install_in_between.mel</code> into the Maya viewport to add a shelf button. Or run <code>tools/maya/run_in_between.py</code> manually.</p>
       </div>
     </details>
-
-  <script>
+<script>
     (function(){
       // Constants
       const ORIGIN_X = 60, ORIGIN_Y = 115, CAPE_LENGTH = 520, STEPS = 80;
@@ -706,10 +617,6 @@ build_cape_rig()</pre>
           ['r3_p_env_out', 'r3_p_cape_in', 'var(--cape-curve)']
         ]
       });
-      CardCommon.setupCopyButton(
-        document.getElementById('copyScriptBtn3'),
-        document.getElementById('mayaScript3')
-      );
 
       window.addEventListener('beforeunload', function() {
         nodeGraph.disconnect();

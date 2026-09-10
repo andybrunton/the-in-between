@@ -1,6 +1,18 @@
 # The In-Between
 
-Math-driven curve and joint behaviour between your existing controls — portable recipes with live demos and optional Maya wiring.
+Math-driven curve and joint behaviour between your existing controls — portable recipes with live demos and a Maya companion tool.
+
+## Maya companion tool (2026)
+
+Unified PySide6 UI for all six behaviours — multiple rigs per scene and exportable joint chains.
+
+**Quick install:** drag `tools/maya/install_shelf.py` or `tools/maya/install_in_between.mel` into the Maya viewport. That adds an **In-Between** button to your current shelf (no path setup required).
+
+**Manual run:**
+
+1. Add `tools/maya` to your Maya script path, or run `tools/maya/run_in_between.py` from the Script Editor.
+2. `import run_in_between; run_in_between.show()`
+3. Pick behaviour, start/end transforms, optional parent groups, build.
 
 ## Local preview
 

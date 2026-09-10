@@ -269,91 +269,14 @@
       </div>
     </details>
 
-    <details class="formula-box" id="r1_maya_details">
-      <summary>Maya adapter script</summary>
-      <div class="formula-body mono code-block-wrapper">
-        <button class="copy-btn" id="copyScriptBtn1" aria-label="Copy Maya script to clipboard">Copy</button>
-<pre id="mayaScript1">import maya.cmds as cmds
-import math
-
-def build_volume_rig():
-    name = "VolumeRig"
-    if cmds.objExists(name): cmds.delete(name)
-    
-    root = cmds.group(em=True, name=name)
-    
-    # Create joints
-    shoulder = cmds.joint(name=f"{name}_Shoulder", p=(-72, 0, 0))
-    elbow = cmds.joint(name=f"{name}_Elbow", p=(88, 0, 0))
-    wrist = cmds.joint(name=f"{name}_Wrist", p=(248, 0, 0))
-    
-    # Create volume locator at elbow
-    volume = cmds.spaceLocator(name=f"{name}_Volume")[0]
-    cmds.parent(volume, elbow)
-    cmds.setAttr(f"{volume}.translate", 0, 0, 0)
-    
-    # Settings node
-    settings = cmds.spaceLocator(name=f"{name}_Settings")[0]
-    cmds.parent(settings, root)
-    cmds.setAttr(f"{settings}.visibility", 0)
-    
-    # Add attributes
-    attrs = [
-        ("maxBulgeX", 0.8, 0.0, 2.0),
-        ("maxBulgeY", 0.4, 0.0, 2.0),
-        ("maxBulgeZ", 0.6, 0.0, 2.0),
-        ("minX", 40.0, 0.0, 180.0),
-        ("maxX", 160.0, 0.0, 180.0),
-        ("minY", 40.0, 0.0, 180.0),
-        ("maxY", 160.0, 0.0, 180.0),
-        ("minZ", 40.0, 0.0, 180.0),
-        ("maxZ", 160.0, 0.0, 180.0)
-    ]
-    
-    for attr, dv, minv, maxv in attrs:
-        cmds.addAttr(settings, ln=attr, at="float", dv=dv, min=minv, max=maxv, k=True)
-    
-    # Angle control
-    angle_ctrl = cmds.spaceLocator(name=f"{name}_AngleCtrl")[0]
-    cmds.parent(angle_ctrl, root)
-    cmds.addAttr(angle_ctrl, ln="angle", at="float", dv=180, min=0, max=180, k=True)
-    
-    # Set up joint rotation
-    cmds.parentConstraint(angle_ctrl, elbow, mo=True, skipRotate=['x','z'])
-    
-    # Expression for volume scaling
-    expr = f'''
-// Volume deformation expression
-float $angle = {angle_ctrl}.angle;
-
-// Range remap for X
-float $tX = clamp(($angle - {settings}.minX) / ({settings}.maxX - {settings}.minX), 0, 1);
-float $progressX = $tX * $tX * (3 - 2 * $tX);
-
-// Range remap for Y
-float $tY = clamp(($angle - {settings}.minY) / ({settings}.maxY - {settings}.minY), 0, 1);
-float $progressY = $tY * $tY * (3 - 2 * $tY);
-
-// Range remap for Z
-float $tZ = clamp(($angle - {settings}.minZ) / ({settings}.maxZ - {settings}.minZ), 0, 1);
-float $progressZ = $tZ * $tZ * (3 - 2 * $tZ);
-
-// Scale volume
-{volume}.scaleX = 1 + {settings}.maxBulgeX * $progressX;
-{volume}.scaleY = 1 + {settings}.maxBulgeY * $progressY;
-{volume}.scaleZ = 1 + {settings}.maxBulgeZ * $progressZ;
-'''
-    cmds.expression(s=expr, name=f"{name}_VolumeExpr")
-    
-    # Group
-    cmds.select(root)
-    cmds.group(name=f"{name}_Grp")
-
-build_volume_rig()</pre>
+        <details class="formula-box">
+      <summary>Maya companion tool</summary>
+      <div class="formula-body">
+        <p class="recipe-intuition">Build this behaviour with the unified In-Between Maya tool (<code>tools/maya/</code>). Assign your existing start/end transforms, optional parent groups — then build an exportable joint chain. Multiple rigs per scene are supported.</p>
+        <p class="recipe-intuition" style="margin-top:8px;">Drag <code>tools/maya/install_shelf.py</code> or <code>tools/maya/install_in_between.mel</code> into the Maya viewport to add a shelf button. Or run <code>tools/maya/run_in_between.py</code> manually.</p>
       </div>
     </details>
-
-  <script>
+<script>
     (function(){
       // ============================================
       // CONSTANTS
@@ -453,8 +376,6 @@ build_volume_rig()</pre>
         labelX: document.getElementById('r1_labelX'),
         labelY: document.getElementById('r1_labelY'),
         labelZ: document.getElementById('r1_labelZ'),
-        copyBtn: document.getElementById('copyScriptBtn1'),
-        mayaScript: document.getElementById('mayaScript1'),
         nodeDetails: document.getElementById('r1_node_details'),
         graphContainer: document.getElementById('r1_graph_container'),
         nodeCanvas: document.getElementById('r1_node_canvas'),
@@ -507,7 +428,6 @@ build_volume_rig()</pre>
           { from: 'r1_p_ell_out', to: 'r1_p_deform_in', color: '#88ddff' }
         ]
       });
-      CardCommon.setupCopyButton(dom.copyBtn, dom.mayaScript);
 
       // ============================================
       // DUAL RANGE HANDLER

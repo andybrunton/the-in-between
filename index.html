@@ -444,80 +444,8 @@
   <header class="app-header">
     <h1 class="hero-title">The In-Between</h1>
     <p class="hero-sub">Math-driven curve and joint behaviour between your existing controls.</p>
-    <p class="hero-intro">Each recipe starts with portable maths — usable in Maya, Blender, Unreal, or anywhere else — then adds live exploration and optional DCC wiring. Tap a card to open the workbench.</p>
+    <p class="hero-intro">Each recipe starts with portable maths — usable in Maya, Blender, Unreal, or anywhere else — then adds live exploration. Tap a card to open and play with variables.</p>
   </header>
-
-  <div class="script-wrapper">
-    <details class="formula-box">
-      <summary>Utility: Create Joints On Curve (Maya)</summary>
-      <div class="formula-body mono code-block-wrapper">
-        <button class="copy-btn" id="globalCopyBtn" aria-label="Copy Maya script to clipboard">Copy</button>
-    <pre id="globalMayaScript">import maya.cmds as cmds
-
-def create_evenly_spaced_joints(name="curve_jnt", num_joints=5, front_axis='x', up_axis='y'):
-    sel = cmds.ls(sl=True)
-    if not sel:
-        cmds.warning("Please select a valid curve.")
-        return
-        
-    crv = sel[0]
-    shapes = cmds.listRelatives(crv, shapes=True)
-    if not shapes or cmds.nodeType(shapes[0]) != 'nurbsCurve':
-        cmds.warning("Selected object is not a valid NURBS curve.")
-        return
-        
-    if num_joints < 1:
-        cmds.warning("Number of joints must be at least 1.")
-        return
-
-    cmds.undoInfo(openChunk=True)
-    
-    jnt_group = cmds.group(empty=True, name=f"{name}_GRP")
-    created_joints = []
-    
-    try:
-        # Check if the curve is physically closed (1=Closed, 2=Periodic)
-        form = cmds.getAttr(f"{shapes[0]}.form")
-        is_closed = (form > 0)
-
-        for i in range(num_joints):
-            cmds.select(clear=True)
-            jnt = cmds.joint(name=f"{name}_{i:02d}")
-            cmds.parent(jnt, jnt_group)
-            created_joints.append(jnt)
-            
-            m_path = cmds.pathAnimation(
-                jnt, 
-                curve=crv, 
-                fractionMode=True, 
-                follow=True,
-                followAxis=front_axis,
-                upAxis=up_axis
-            )
-            
-            cmds.cutKey(m_path, time=(None, None), attribute='uValue')
-            
-            # Adjust distribution based on whether the curve connects back to the start
-            if is_closed:
-                u_val = i / float(num_joints)
-            else:
-                u_val = 0.0 if num_joints == 1 else i / float(num_joints - 1)
-                
-            cmds.setAttr(f"{m_path}.uValue", u_val)
-                
-    except Exception as e:
-        cmds.warning(f"Error generating joints: {e}")
-    finally:
-        cmds.undoInfo(closeChunk=True)
-        
-    return created_joints
-
-# Example usage
-if __name__ == "__main__":
-    create_evenly_spaced_joints(name="my_curve_joint", num_joints=10, front_axis='x', up_axis='y')</pre>
-      </div>
-    </details>
-  </div>
 
   <!-- Dynamic 2-Column Grid Container -->
   <main class="grid-container" id="gridContainer"></main>
@@ -648,15 +576,6 @@ if __name__ == "__main__":
       if (e.key === 'Escape' && currentModalIdx !== null) closeModal();
     });
 
-    function setupGlobalCopyButton() {
-      CardCommon.setupCopyButton(
-        document.getElementById('globalCopyBtn'),
-        document.getElementById('globalMayaScript')
-      );
-    }
-
-    // Ensure it runs when the page loads
-    window.addEventListener('DOMContentLoaded', setupGlobalCopyButton);
     window.addEventListener('DOMContentLoaded', initDashboard);
   </script>
 </body>
