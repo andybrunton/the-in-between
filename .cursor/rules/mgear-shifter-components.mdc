@@ -21,18 +21,15 @@ Closest stock template for our components: `shifter_classic_components/hydraulic
 
 ## Iteration loop
 
-Shifter draws guides and builds rigs fine under `maya.standalone`, so every change gets a real
-build before it ever reaches the GUI. Run this after each edit:
+Full authoring workflow lives in the `mgear-shifter-component` skill. The short version: Shifter
+draws guides and builds rigs under `maya.standalone`, so every change gets a real build before it
+reaches the GUI.
 
 ```powershell
 $env:MAYA_MODULE_PATH="C:\Users\andre\Documents\GitHub\mgear\release"
 cd tools\maya\shifter_components
 & "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" smoke_build.py
 ```
-
-`smoke_build.py` draws a guide, builds, and asserts rig behaviour. Add a case there for every
-bug found, then fix it. Pure maths lives in a Maya-free module with a `test_*.py` beside it
-(`mayapy test_bow_math.py`) so the geometry can be checked in a second.
 
 In an interactive Maya session, `register.register()` re-registers the path, flushes our modules
 and clears Shifter's caches. Then redraw the guide and rebuild.
