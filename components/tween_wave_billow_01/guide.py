@@ -1,4 +1,4 @@
-"""Guide for the In-Between Bounded Bow component."""
+"""Guide for the In-Between Wave Billow component."""
 
 from functools import partial
 
@@ -16,15 +16,15 @@ AUTHOR = "In-Between"
 URL = "https://github.com/andre/the-in-between"
 EMAIL = ""
 VERSION = [0, 1, 0]
-TYPE = "tween_bounded_bow_01"
-NAME = "boundedBow"
+TYPE = "tween_wave_billow_01"
+NAME = "waveBillow"
 DESCRIPTION = (
-    "Bounded Bow. A symmetric bow of joints between two points. The bulge "
-    "grows as the span compresses (distance mode) or as the tip bends away "
-    "from the chord, whether it swings off it or just turns on the spot "
-    "(angle mode).\n\n"
-    "Place the root at the start, the tip at the end, and aim the blade flag "
-    "at the direction the bulge should push."
+    "Wave Billow. A chain of joints on a bezier spine between two points, "
+    "displaced by a stack of harmonic waves. Winding the phase sends the wave "
+    "travelling down the spine; turning the controls bends the spine under "
+    "it.\n\n"
+    "Place the root at the anchor, the tip at the loose end, and aim the "
+    "blade flag along the axis the wave should swing on."
 )
 
 
@@ -58,20 +58,14 @@ class Guide(guide.ComponentGuide):
         self.dispcrv = self.addDispCurve("crv", [self.root, self.tip])
 
     def addParameters(self):
-        # 0 = distance, 1 = angle
-        self.pDriveMode = self.addParam("driveMode", "long", 0, 0, 1)
-        # 0 = smooth, 1 = linear, 2 = ease in, 3 = ease out
-        self.pEasing = self.addParam("easing", "long", 0, 0, 3)
-        self.pDiv = self.addParam("div", "long", 5, 2, None)
-
-        # Ratios of the guide length, so the defaults survive a rescaled guide.
-        self.pMinLengthRatio = self.addParam(
-            "minLengthRatio", "double", 0.36, 0.01, 1.0)
-        self.pMaxBendAngle = self.addParam(
-            "maxBendAngle", "double", 90.0, 1.0, 180.0)
-        self.pBulgeRatio = self.addParam("bulgeRatio", "double", 0.43, 0.0, 10.0)
-        self.pTangentWeight = self.addParam(
-            "tangentWeight", "double", 0.55, 0.0, 1.0)
+        # The wave itself has no build-time settings: amplitude starts at zero
+        # so the rig binds on the guide pose, and everything that shapes the
+        # wave is an anim attr the animator tunes per shot.
+        self.pDiv = self.addParam("div", "long", 10, 2, None)
+        # 0 = free start, 1 = free end, 2 = pinned
+        self.pPinMode = self.addParam("pinMode", "long", 1, 0, 2)
+        self.pHandleRatio = self.addParam(
+            "handleRatio", "double", 1.0 / 3.5, 0.0, 1.0)
 
         self.pRefArray = self.addParam("ikrefarray", "string", "")
         self.pUseIndex = self.addParam("useIndex", "bool", False)
@@ -114,7 +108,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setObjectName(self.toolName)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setWindowTitle(TYPE)
-        self.resize(350, 520)
+        self.resize(350, 400)
 
     def create_componentControls(self):
         return
@@ -123,17 +117,9 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.tabs.insertTab(1, self.settingsTab, "Component Settings")
 
         tab = self.settingsTab
-        tab.driveMode_comboBox.setCurrentIndex(self.root.attr("driveMode").get())
-        tab.easing_comboBox.setCurrentIndex(self.root.attr("easing").get())
         tab.div_spinBox.setValue(self.root.attr("div").get())
-        tab.minLength_doubleSpinBox.setValue(
-            self.root.attr("minLengthRatio").get())
-        tab.maxBendAngle_doubleSpinBox.setValue(
-            self.root.attr("maxBendAngle").get())
-        tab.bulge_doubleSpinBox.setValue(self.root.attr("bulgeRatio").get())
-        tab.tangent_doubleSpinBox.setValue(
-            self.root.attr("tangentWeight").get())
-        self.update_drive_mode_enabled()
+        tab.pinMode_comboBox.setCurrentIndex(self.root.attr("pinMode").get())
+        tab.handle_doubleSpinBox.setValue(self.root.attr("handleRatio").get())
 
         for item in self.root.attr("ikrefarray").get().split(","):
             tab.refArray_listWidget.addItem(item)
@@ -148,19 +134,12 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
     def create_componentConnections(self):
         tab = self.settingsTab
 
-        tab.driveMode_comboBox.currentIndexChanged.connect(
-            partial(self.updateComboBox, tab.driveMode_comboBox, "driveMode"))
-        tab.driveMode_comboBox.currentIndexChanged.connect(
-            self.update_drive_mode_enabled)
-        tab.easing_comboBox.currentIndexChanged.connect(
-            partial(self.updateComboBox, tab.easing_comboBox, "easing"))
+        tab.pinMode_comboBox.currentIndexChanged.connect(
+            partial(self.updateComboBox, tab.pinMode_comboBox, "pinMode"))
 
         for widget, attr in (
             (tab.div_spinBox, "div"),
-            (tab.minLength_doubleSpinBox, "minLengthRatio"),
-            (tab.maxBendAngle_doubleSpinBox, "maxBendAngle"),
-            (tab.bulge_doubleSpinBox, "bulgeRatio"),
-            (tab.tangent_doubleSpinBox, "tangentWeight"),
+            (tab.handle_doubleSpinBox, "handleRatio"),
         ):
             widget.valueChanged.connect(
                 partial(self.updateSpinBox, widget, attr))
@@ -174,12 +153,6 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
                     tab.refArray_listWidget,
                     "ikrefarray"))
         tab.refArray_listWidget.installEventFilter(self)
-
-    def update_drive_mode_enabled(self, *args):
-        """Grey out the threshold that the current drive mode ignores."""
-        is_angle = self.settingsTab.driveMode_comboBox.currentIndex() == 1
-        self.settingsTab.minLength_doubleSpinBox.setEnabled(not is_angle)
-        self.settingsTab.maxBendAngle_doubleSpinBox.setEnabled(is_angle)
 
     def eventFilter(self, sender, event):
         if event.type() == QtCore.QEvent.ChildRemoved:

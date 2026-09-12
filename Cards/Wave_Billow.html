@@ -214,10 +214,10 @@ SPLINE BEND (Simplified):
     </details>
 
         <details class="formula-box">
-      <summary>Maya companion tool</summary>
+      <summary>mGear Shifter component</summary>
       <div class="formula-body">
-        <p class="recipe-intuition">Build this behaviour with the unified In-Between Maya tool (<code>tools/maya/</code>). Assign your existing start/end transforms, optional parent groups — then build an exportable joint chain. Multiple rigs per scene are supported.</p>
-        <p class="recipe-intuition" style="margin-top:8px;">Drag <code>tools/maya/install_shelf.py</code> or <code>tools/maya/install_in_between.mel</code> into the Maya viewport to add a shelf button. Or run <code>tools/maya/run_in_between.py</code> manually.</p>
+        <p class="recipe-intuition"><strong>Available:</strong> <code class="mono">tween_wave_billow_01</code> in the Shifter Guide Manager. Place <em>root</em> at the anchor, <em>tip</em> at the loose end, aim the <em>blade</em> flag along the axis the wave should swing on, then build from the <code>guide</code> root. Turning the two controls bends the bezier spine, which is how the Start / End Angle sliders above show up in the rig.</p>
+        <p class="recipe-intuition" style="margin-top:8px;">Install: add this repo's <code>components/</code> folder to <code>MGEAR_SHIFTER_COMPONENT_PATH</code>, or run <code>register.register()</code> from Maya (see README). Anim attrs on the rig UI host: <code>waveBillow_amplitude</code>, <code>waveBillow_frequency</code>, <code>waveBillow_phase</code>, <code>waveBillow_circularity</code>, <code>waveBillow_complexity</code>, <code>waveBillow_wave_twist</code>. Amplitude starts at zero so the rig binds on the guide pose. Phase is geared for animating: a whole cycle of travel is 36 units, not the card's 360 degrees. Only joint count, Pin Mode and the bezier handle ratio are guide settings.</p>
       </div>
     </details>
 <script>

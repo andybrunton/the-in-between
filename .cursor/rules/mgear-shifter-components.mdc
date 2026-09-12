@@ -1,6 +1,6 @@
 ---
-description: Facts and hard-won lessons for authoring mGear Shifter components in tools/maya/shifter_components
-globs: tools/maya/shifter_components/**
+description: Facts and hard-won lessons for authoring mGear Shifter components in components/
+globs: components/**
 alwaysApply: false
 ---
 
@@ -11,7 +11,7 @@ Closest stock template for our components: `shifter_classic_components/hydraulic
 
 ## How Shifter finds a component
 
-- `MGEAR_SHIFTER_COMPONENT_PATH` must point at the **parent** folder (`tools/maya/shifter_components`),
+- `MGEAR_SHIFTER_COMPONENT_PATH` must point at the **parent** folder (`components/`),
   not at the component folder. Multiple paths are `os.pathsep`-separated.
 - Every direct subfolder of that path is treated as a component and must contain `__init__.py`
   (with `class Component(component.Main)`) and `guide.py` (with `class Guide(guide.ComponentGuide)`).
@@ -27,7 +27,7 @@ reaches the GUI.
 
 ```powershell
 $env:MAYA_MODULE_PATH="C:\Users\andre\Documents\GitHub\mgear\release"
-cd tools\maya\shifter_components
+cd components
 & "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" smoke_build.py
 ```
 
@@ -51,9 +51,9 @@ Record what broke in **Lessons** below in the same change as the fix.
 
 Append a dated one-liner per mistake. Never delete entries.
 
-- 2026-09-09 The standalone `tools/maya/in_between` bounded bow both rotates the bulge plane by
-  `bendAngle` *and* scales height by `cos(bendAngle)`. The cosine is a 2D-projection artifact of the
-  HTML card; in 3D it double-counts and kills the bulge at 90 deg. Rotate the plane only.
+- 2026-09-09 The old standalone bounded-bow builder both rotated the bulge plane by `bendAngle`
+  *and* scaled height by `cos(bendAngle)`. The cosine is a 2D-projection artifact of the HTML card;
+  in 3D it double-counts and kills the bulge at 90 deg. Rotate the plane only.
 - 2026-09-09 `angleBetween.angle` is a `doubleAngle`. Connecting it to a plain `double` makes Maya
   insert a `unitConversion`, so the downstream number is in UI units, not radians. Keep the compared
   threshold attr as `doubleAngle` too so both sides get the same conversion.
@@ -77,6 +77,64 @@ Append a dated one-liner per mistake. Never delete entries.
   It does not reposition a reused joint, so it is no help against the above.
 - 2026-09-10 Before blaming our code for a build oddity, run the same scenario on the nearest stock
   component in `diag`-style throwaway script. It took one run to clear the component of a bug.
+- 2026-09-11 `eulerToQuat` is the DG's sin and cos: feed `2*theta` into `inputRotateX` and
+  `outputQuatX` / `outputQuatW` are `sin(theta)` / `cos(theta)`. Two trig terms from one node.
+  A plain `double` connected into that `doubleAngle` gets a `unitConversion` and is read as
+  **degrees**, so keep the arithmetic in degrees.
+- 2026-09-11 `eulerToQuat` lives in the `quatNodes` plugin. Without `cmds.loadPlugin("quatNodes")`
+  the build quietly makes `unknown` nodes instead of failing.
+- 2026-09-11 `mgear.pymaya.PyNode` cannot wrap a plugin node type: `nt.getTypeClass` returns None
+  and you get `TypeError: 'NoneType' object is not callable`. Keep plugin nodes as name strings;
+  the `mgear.core.node.create*Node` helpers take strings as happily as attributes.
+- 2026-09-11 `motionPath` output is world space. The path-driven transform needs
+  `inheritsTransform` off (stock `spine_ik_01` does exactly this) and the rig scale handed back
+  from the component root's world scale, or the rig scales and the component's offsets do not.
+- 2026-09-11 Maya 2026 `motionPath` defaults are `worldUpType` 3 (vector), `frontAxis` 1 (Y),
+  `upAxis` 2 (Z). Set all three. `worldUpType` 2 plus a `worldUpMatrix` from a transform whose
+  `rotateX` is driven gives an up direction an anim attr can roll around the path.
+- 2026-09-11 `setRange` clamps and has three channels, so one node covers three ramped weight
+  windows. `node.createSetRangeNode` applies one `oldMin`/`oldMax` to every channel, so build it
+  by hand when the channels differ.
+- 2026-09-11 A guide param may share a name with an anim param that it seeds (`frequency` seeding
+  `waveBillow_frequency`); they live on different nodes. But the guide root outlives the build, so
+  `smoke_build._anim_plug` saw both. It now requires the component-name prefix.
+- 2026-09-11 Displacing points off a spine stretches the gaps between them, worst where the
+  envelope peaks, so the end bone of a chain balloons. Fix: drive a curve from the displaced points
+  and respace the joints along it with `fractionMode`. Degree 1 keeps the curve running exactly
+  through every point, but measured against a cubic through the same points the extra fidelity was
+  nil (100% of the wave height either way at 5+ points per cycle), so it does not pay for the
+  jumping tangent that comes with it.
+- 2026-09-11 Equal arc length is not equal chord length: joints spaced evenly along a curve that
+  kinks between them still measure unequal straight-line gaps. Assert the improvement ratio, not a
+  flat result. `motionPath` `fractionMode` itself is only exact to about 1e-4 of the span.
+- 2026-09-11 `applyop.gear_intmatrix_op` slerps, so decomposing its output rotation at `blend=u`
+  and feeding it to a frame's up object distributes a control's roll linearly along a chain.
+  Measured exactly `u * 90` from one end and `(1 - u) * 90` from the other. This is the whole
+  twist-distribution mechanism in the stock spine components.
+- 2026-09-11 **Never take a joint's orientation from a curve the joint's own displacement built,
+  nor by aiming at the next joint.** Both flip, and the second gets worse the more joints there
+  are, because the gap it measures shrinks while the cause does not. Three separate attempts and
+  what each measured, sweeping phase and logging the worst frame-to-frame jump per joint:
+  - Aim at the next joint, up = the wave axis: clean 178 degree flips, because the chain swings
+    *through* the up axis wherever the wave is steep. An aim constraint flips when its aim and up
+    line up, so pick an up the aim direction can never reach: the wave stays in its plane, so the
+    plane's **normal** is always safe. Fixed those, revealing the real cause underneath.
+  - A longitudinal term (here circularity, sliding points along the spine) folds the curve back on
+    itself once the slide passes the gap between points. Neighbouring joints then collapse to 0.004
+    apart against a 0.114 spacing, and the direction between them is noise. Worst jump tracked min
+    neighbour gap, nothing else.
+  - Orientation from the folded curve's own tangent (cubic + `follow`) was *worse*, 180 degrees: a
+    folded curve has a real cusp, and every tangent frame reverses through it. No curve degree or
+    up vector saves this.
+  - What worked, 0.00 degrees at every amplitude, frequency, circularity and joint count tried:
+    position from the wave curve, orientation from the **smooth spine frame underneath it** via
+    `orientConstraint`. Fewer nodes than the aim constraints it replaced. Cost: the bones no longer
+    point exactly down a steep wave, up to about 50 degrees off at high amplitude.
+- 2026-09-11 A stability fix needs an adversarial regression test or it proves nothing, and assert
+  the scenario is *actually* adversarial. "Neighbouring joints collapsed" is the wrong proxy for
+  "the curve folded" (a deep fold spreads the arc and the gaps stay healthy); read the longitudinal
+  offset directly and check a pair swapped order. Then sweep the controls at the same time, so a
+  frame that is merely frozen cannot pass a continuity assertion by standing still.
 - 2026-09-10 For any list-of-scene-objects setting, copy the stock IK Reference Array layout
   (`arm_2jnt_01/settingsUI.py`): list on the left, `<<` / `>>` stacked on the right, plus
   `InternalMove` drag reordering. A plain list with buttons underneath reads as having no

@@ -1,53 +1,69 @@
 # The In-Between
 
-Math-driven curve and joint behaviour between your existing controls — portable recipes with live demos and a Maya companion tool.
+Math-driven curve and joint behaviours between your existing controls — live card demos plus **mGear Shifter components** for Maya.
 
-## Maya companion tool (2026)
+Each behaviour is a recipe card (the spec) and a matching `tween_*` Shifter guide (the rig). Open a card to explore the maths; draw the guide in Maya to build it.
 
-Unified PySide6 UI for all six behaviours — multiple rigs per scene and exportable joint chains.
-
-**Quick install:** drag `tools/maya/install_shelf.py` or `tools/maya/install_in_between.mel` into the Maya viewport. That adds an **In-Between** button to your current shelf (no path setup required).
-
-**Manual run:**
-
-1. Add `tools/maya` to your Maya script path, or run `tools/maya/run_in_between.py` from the Script Editor.
-2. `import run_in_between; run_in_between.show()`
-3. Pick behaviour, start/end transforms, optional parent groups, build.
-
-## Local preview
+## Card gallery (local)
 
 This site loads card HTML via `fetch()`, so use a local server (not `file://`):
 
 - **VS Code:** Live Server on `index.html`
 - **Python:** `python -m http.server 8080` then open `http://localhost:8080`
 
-## Publish on GitHub Pages (free, public repo)
+## mGear components (Maya)
 
-1. Create a new **public** repository on GitHub named `the-in-between` (or any name).
-2. Push this folder to it (see below).
-3. On GitHub: **Settings → Pages**
-4. **Build and deployment → Source:** Deploy from a branch
-5. **Branch:** `main` (or `master`), folder **`/ (root)`**
-6. Save. After 1–2 minutes your site is live at:
+Components live in `components/`. Each subfolder is one Shifter guide type (e.g. `tween_bounded_bow_01`).
 
-   `https://<your-username>.github.io/the-in-between/`
+### One-time setup
 
-## Push from VS Code
+**Option A — environment variable (recommended)**
 
-1. **File → Open Folder** → this `the-in-between` folder
-2. Source Control → **Initialize Repository**
-3. Stage all → commit: `Initial commit: The In-Between site`
-4. **Publish Branch** → create repo on GitHub (choose **Public**)
-5. Enable Pages (steps above)
+Add the `components` folder to `MGEAR_SHIFTER_COMPONENT_PATH` (the path must be the folder that *contains* the component subfolders, not a component folder itself). Restart Maya.
 
-## Push from GitHub Desktop
+**Option B — register from the Script Editor**
 
-1. **File → Add local repository** → select this folder
-2. If prompted, create a repository here
-3. Commit with message `Initial commit: The In-Between site`
-4. **Publish repository** → Public
-5. Enable Pages on github.com (steps above)
+```python
+import sys
+sys.path.append(r"C:\path\to\the-in-between\components")
+import register
+register.register()
+```
 
-## Updating the site
+Re-run `register.register()` after editing component code so Shifter picks up changes without restarting Maya.
 
-Edit files here (or copy updates from `ab-maya-scripts/sites`), commit, and push. Pages redeploys automatically.
+### Draw and build
+
+1. Open mGear → **Shifter Guide Component** manager.
+2. Search for `tween_` (e.g. `tween_bounded_bow_01`).
+3. Double-click to draw the guide. Place **root** at the start, **tip** at the end; aim the **blade** flag at the bulge direction where applicable.
+4. Select the `guide` root and **Build**.
+
+Anim attributes land on the rig UI host (e.g. `global_C0_ctl`), prefixed with the component name (`boundedBow_bulge`, etc.).
+
+### Components
+
+| Card | Shifter type | Status |
+|------|----------------|--------|
+| Bounded Bow | `tween_bounded_bow_01` | Available |
+| Angle Push | `tween_angle_push_01` | Planned |
+| Muscle Curve | `tween_muscle_curve_01` | Planned |
+| Wave Billow | `tween_wave_billow_01` | Available |
+| Skin Wrinkle | `tween_skin_wrinkle_01` | Planned |
+| 3D Volume | `tween_volume_3d_01` | Planned |
+
+### Developer checks
+
+```powershell
+$env:MAYA_MODULE_PATH="C:\path\to\mgear\release"
+cd components
+& "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" smoke_build.py
+```
+
+Pure maths modules have a `test_*.py` beside them (`mayapy test_bow_math.py`).
+
+## Publish on GitHub Pages
+
+1. Push this repo to GitHub (public).
+2. **Settings → Pages** → deploy from branch `main`, folder `/ (root)`.
+3. Site URL: `https://<username>.github.io/the-in-between/`

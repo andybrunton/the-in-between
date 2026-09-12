@@ -31,6 +31,8 @@ EASING_RAMPS = {
 DRIVE_DISTANCE = 0
 DRIVE_ANGLE = 1
 
+ROTATE_ATTRS = ("rotateX", "rotateY", "rotateZ")
+
 
 ##########################################################
 # COMPONENT
@@ -53,6 +55,13 @@ class Component(component.Main):
             self.guide.apos[0], self.guide.apos[1]
         )
         self.is_angle_drive = self.settings["driveMode"] == DRIVE_ANGLE
+        self.use_external_angle = self.is_angle_drive and bool(
+            (self.settings.get("angleRef") or "").strip()
+        )
+        self.use_ik_joint_ref = bool(
+            self.settings.get("ikrefJointDriver")
+            and (self.settings.get("ikrefarray") or "").strip()
+        )
 
         # +X down the chord, +Y is the bulge plane. bow_math assumes this frame.
         t = transform.getTransformLookingAt(
@@ -171,6 +180,10 @@ class Component(component.Main):
                 "doubleAngle",
                 self.settings["maxBendAngle"],
             )
+            if self.use_external_angle:
+                self.rest_angle_att = self.addSetupParam(
+                    "restAngle", "Rest Angle", "doubleAngle", 0.0
+                )
         else:
             self.rest_length_att = self.addSetupParam(
                 "restLength", "Rest Length", "double", self.rest_length, 0.001
@@ -207,19 +220,24 @@ class Component(component.Main):
         length_att = self._local_distance()
 
         # Compression / bend -> 0..1, eased, in a single remapValue.
-        remap = pm.createNode("remapValue")
-        self._set_easing_ramp(remap)
+        self._drive_remap = pm.createNode("remapValue")
+        self._set_easing_ramp(self._drive_remap)
         if self.is_angle_drive:
-            pm.connectAttr(self._bend_angle(), remap.attr("inputValue"))
-            remap.attr("inputMin").set(0)
-            pm.connectAttr(self.threshold_att, remap.attr("inputMax"))
+            # External refs resolve in connect_standard: relatives are not
+            # registered until after every component's addOperators pass.
+            if not self.use_external_angle:
+                pm.connectAttr(
+                    self._bend_angle(), self._drive_remap.attr("inputValue")
+                )
+            self._drive_remap.attr("inputMin").set(0)
+            pm.connectAttr(self.threshold_att, self._drive_remap.attr("inputMax"))
         else:
-            pm.connectAttr(length_att, remap.attr("inputValue"))
-            pm.connectAttr(self.rest_length_att, remap.attr("inputMin"))
-            pm.connectAttr(self.threshold_att, remap.attr("inputMax"))
+            pm.connectAttr(length_att, self._drive_remap.attr("inputValue"))
+            pm.connectAttr(self.rest_length_att, self._drive_remap.attr("inputMin"))
+            pm.connectAttr(self.threshold_att, self._drive_remap.attr("inputMax"))
 
         height_att = node.createMulNode(
-            remap.attr("outValue"), self.bulge_att
+            self._drive_remap.attr("outValue"), self.bulge_att
         ).attr("outputX")
 
         # Bow points ------------------------------------
@@ -269,6 +287,133 @@ class Component(component.Main):
             )
         return dist.attr("distance")
 
+    def _joint_from_component_ref(self, ref, index):
+        """Joint index on the component named by a guide root."""
+        comp = self.rig.findComponent(ref)
+        if not comp:
+            return None
+        try:
+            return comp.jointList[index]
+        except (IndexError, TypeError):
+            pm.displayWarning(
+                "bounded bow: {} has no joint at index {}".format(ref, index)
+            )
+            return None
+
+    def _ikref_joint_targets(self):
+        """Joints listed in ikrefarray, using ikrefJointIndex on each entry."""
+        refs = [
+            name.strip()
+            for name in (self.settings.get("ikrefarray") or "").split(",")
+            if name.strip()
+        ]
+        if not refs:
+            return []
+
+        index = self.settings.get("ikrefJointIndex", 0)
+        targets = []
+        for ref in refs:
+            jnt = self._joint_from_component_ref(ref, index)
+            if jnt:
+                targets.append(jnt)
+        return targets
+
+    def _connect_ik_joint_ref(self):
+        """Follow joint(s) once the driver jointList exists."""
+        targets = self._ikref_joint_targets()
+        if not targets:
+            pm.displayWarning(
+                "bounded bow: ikref joint list did not resolve to any joints"
+            )
+            return
+
+        # Point-only: ik_cns lives under the bow hierarchy, so a parent
+        # constraint would compound with that motion. Match control/locator
+        # refs, which also only pull translation when angle owns rotation.
+        cns_func = pm.pointConstraint
+        cns_kwargs = {"maintainOffset": True}
+
+        if len(targets) == 1:
+            cns_func(targets[0], self.ik_cns, **cns_kwargs)
+            return
+
+        refs = targets + [self.ik_cns]
+        cns_node = cns_func(*refs, **cns_kwargs)
+        cns_attr_names = cns_func(cns_node, query=True, weightAliasList=True)
+        if not getattr(self, "ikref_att", None):
+            return
+
+        for i, attr in enumerate(cns_attr_names):
+            node_name = pm.createNode("condition")
+            pm.connectAttr(self.ikref_att, node_name + ".firstTerm")
+            pm.setAttr(node_name + ".secondTerm", i)
+            pm.setAttr(node_name + ".operation", 0)
+            pm.setAttr(node_name + ".colorIfTrueR", 1)
+            pm.setAttr(node_name + ".colorIfFalseR", 0)
+            pm.connectAttr(
+                node_name + ".outColorR",
+                "{}.{}".format(cns_node, attr),
+            )
+
+    def _angle_driver(self):
+        """Guide-relative control, locator, or joint named in angleRef."""
+        ref = (self.settings.get("angleRef") or "").strip()
+        comp = self.rig.findComponent(ref) if ref else None
+        if not ref or not comp:
+            return None
+
+        if self.settings.get("angleJointDriver"):
+            idx = self.settings.get("angleJointIndex", 0)
+            try:
+                return comp.jointList[idx]
+            except (IndexError, TypeError):
+                pm.displayWarning(
+                    "bounded bow: {} has no joint at index {}".format(
+                        ref, idx
+                    )
+                )
+                return None
+
+        driver = self.rig.findControlRelative(ref)
+        if not driver:
+            driver = self.rig.findRelative(ref)
+        if not driver:
+            pm.displayWarning(
+                "bounded bow angleRef '{}' did not resolve to a driver".format(
+                    ref
+                )
+            )
+            return None
+        global_ctl = getattr(self.rig, "global_ctl", None)
+        if global_ctl and driver == global_ctl:
+            pm.displayWarning(
+                "bounded bow angleRef '{}' fell back to global_ctl".format(ref)
+            )
+            return None
+        return driver
+
+    def _external_bend_angle(self):
+        """Scalar bend from an external rotate channel -> tip_npo + bulge."""
+        driver = self._angle_driver()
+        if driver is None:
+            return None
+        axis = ROTATE_ATTRS[self.settings["angleAxis"]]
+
+        self.rest_angle_att.set(cmds.getAttr("{}.{}".format(driver, axis)))
+
+        delta = pm.createNode("plusMinusAverage")
+        delta.attr("operation").set(2)
+        pm.connectAttr(driver.attr(axis), delta.attr("input1D[0]"))
+        pm.connectAttr(self.rest_angle_att, delta.attr("input1D[1]"))
+
+        bend = delta.attr("output1D")
+        if self.settings["angleReverse"]:
+            bend = node.createMulNode(bend, -1.0).attr("outputX")
+
+        tip_axis = ROTATE_ATTRS[self.settings["angleAxis"]]
+        pm.connectAttr(bend, self.tip_npo.attr(tip_axis))
+        return bend
+
     def _bend_angle(self):
         """The kink at the tip: chord direction against the tip ctl's own aim.
 
@@ -296,13 +441,15 @@ class Component(component.Main):
         pm.connectAttr(aim.attr("output"), angle.attr("vector2"))
         return angle.attr("angle")
 
-    def _set_easing_ramp(self, remap):
+    def _set_easing_ramp(self, remap_node):
         ramp = EASING_RAMPS[self.settings["easing"]]
         # Clear the default two entries so a 3 point ramp does not inherit them.
-        for i in cmds.getAttr("{}.value".format(remap), multiIndices=True) or []:
-            cmds.removeMultiInstance("{}.value[{}]".format(remap, i), b=True)
+        for i in cmds.getAttr("{}.value".format(remap_node), multiIndices=True) or []:
+            cmds.removeMultiInstance(
+                "{}.value[{}]".format(remap_node, i), b=True
+            )
         for i, (position, value, interp) in enumerate(ramp):
-            entry = "{}.value[{}]".format(remap, i)
+            entry = "{}.value[{}]".format(remap_node, i)
             cmds.setAttr("{}.value_Position".format(entry), position)
             cmds.setAttr("{}.value_FloatValue".format(entry), value)
             cmds.setAttr("{}.value_Interp".format(entry), interp)
@@ -321,6 +468,43 @@ class Component(component.Main):
         self.controlRelatives["root"] = self.ctl
         self.controlRelatives["tip"] = self.tip_ctl
 
+    def _connect_external_angle(self):
+        """Wire angleRef into the bow remap and tip_npo."""
+        bend_att = self._external_bend_angle()
+        if bend_att is None:
+            pm.displayWarning(
+                "bounded bow: angleRef failed, using geometric bend"
+            )
+            pm.connectAttr(self._bend_angle(), self._drive_remap.attr("inputValue"))
+        else:
+            pm.connectAttr(bend_att, self._drive_remap.attr("inputValue"))
+
     def connect_standard(self):
-        """standard connection definition for the component"""
-        self.connect_standardWithSimpleIkRef()
+        """Parent to the hierarchy and optionally follow a tip space reference."""
+        self.parent.addChild(self.root)
+
+        # Joint drivers resolve from jointList, which is not built until
+        # after this connect pass. Control and locator refs wire up here.
+        if self.use_external_angle and not self.settings.get("angleJointDriver"):
+            self._connect_external_angle()
+
+        if not self.settings["ikrefarray"] or self.use_ik_joint_ref:
+            return
+
+        # When an external angle driver owns tip rotation, ik_cns follows
+        # translation only so the two do not fight.
+        kwargs = {}
+        if self.use_external_angle:
+            kwargs["sr"] = ["x", "y", "z"]
+        self.connectRef(self.settings["ikrefarray"], self.ik_cns, **kwargs)
+
+    def jointStructure(self):
+        """Build joints, then wire joint-based angle drivers."""
+        component.Main.jointStructure(self)
+        if self.use_external_angle and self.settings.get("angleJointDriver"):
+            self._connect_external_angle()
+
+    def postScript(self):
+        """Late wiring once every component's jointList is built."""
+        if self.use_ik_joint_ref:
+            self._connect_ik_joint_ref()

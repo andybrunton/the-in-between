@@ -161,10 +161,10 @@ curve = cubic_bezier(P0, P1, P2, P3)  // or de_casteljau_apex(P0..P3)</pre></div
     </details>
 
         <details class="formula-box">
-      <summary>Maya companion tool</summary>
+      <summary>mGear Shifter component</summary>
       <div class="formula-body">
-        <p class="recipe-intuition">Build this behaviour with the unified In-Between Maya tool (<code>tools/maya/</code>). Assign your existing start/end transforms, optional parent groups — then build an exportable joint chain. Multiple rigs per scene are supported.</p>
-        <p class="recipe-intuition" style="margin-top:8px;">Drag <code>tools/maya/install_shelf.py</code> or <code>tools/maya/install_in_between.mel</code> into the Maya viewport to add a shelf button. Or run <code>tools/maya/run_in_between.py</code> manually.</p>
+        <p class="recipe-intuition"><strong>Available:</strong> <code class="mono">tween_bounded_bow_01</code> in the Shifter Guide Manager. Place <em>root</em> at the start, <em>tip</em> at the end, aim the <em>blade</em> flag at the bulge direction, then build from the <code>guide</code> root.</p>
+        <p class="recipe-intuition" style="margin-top:8px;">Install: add this repo's <code>components/</code> folder to <code>MGEAR_SHIFTER_COMPONENT_PATH</code>, or run <code>register.register()</code> from Maya (see README). Anim attrs: <code>boundedBow_bulge</code>, <code>boundedBow_tangent</code>, <code>boundedBow_bulge_twist</code> on the rig UI host.</p>
       </div>
     </details>
 <script>

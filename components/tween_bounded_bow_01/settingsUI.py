@@ -44,6 +44,59 @@ class Ui_Form(object):
         self.easing_comboBox.addItems(["Smooth", "Linear", "Ease In", "Ease Out"])
         drive_form.addRow("Easing", self.easing_comboBox)
 
+        self.angleDriver_group = QtWidgets.QGroupBox("Angle Driver", drive_group)
+        angle_form = QtWidgets.QFormLayout(self.angleDriver_group)
+
+        angle_ref_row = QtWidgets.QHBoxLayout()
+        self.angleRef_lineEdit = QtWidgets.QLineEdit(self.angleDriver_group)
+        self.angleRef_lineEdit.setToolTip(
+            "mGear guide name of the control or locator whose rotation "
+            "drives the bow (e.g. arm_L0_elbow). Leave empty to infer bend "
+            "from the tip control pose."
+        )
+        self.angleRef_pick_pushButton = QtWidgets.QPushButton(
+            "<<", self.angleDriver_group
+        )
+        self.angleRef_pick_pushButton.setToolTip(
+            "Use the selected guide component root or locator"
+        )
+        angle_ref_row.addWidget(self.angleRef_lineEdit)
+        angle_ref_row.addWidget(self.angleRef_pick_pushButton)
+        angle_form.addRow("Driver", angle_ref_row)
+
+        self.angleAxis_comboBox = QtWidgets.QComboBox(self.angleDriver_group)
+        self.angleAxis_comboBox.addItems(["Rotate X", "Rotate Y", "Rotate Z"])
+        self.angleAxis_comboBox.setToolTip(
+            "Which rotation channel on the driver opens the bow."
+        )
+        angle_form.addRow("Axis", self.angleAxis_comboBox)
+
+        self.angleReverse_checkBox = QtWidgets.QCheckBox(
+            "Reverse", self.angleDriver_group
+        )
+        self.angleReverse_checkBox.setToolTip(
+            "Flip the driver sign so negative rotation drives the bulge."
+        )
+        angle_form.addRow("", self.angleReverse_checkBox)
+
+        self.angleJointDriver_checkBox = QtWidgets.QCheckBox(
+            "Joint driver", self.angleDriver_group
+        )
+        self.angleJointDriver_checkBox.setToolTip(
+            "Drive from a joint index on the referenced component instead of "
+            "a control or locator. Use this for neck IK, spine chains, etc."
+        )
+        angle_form.addRow("", self.angleJointDriver_checkBox)
+
+        self.angleJointIndex_spinBox = QtWidgets.QSpinBox(self.angleDriver_group)
+        self.angleJointIndex_spinBox.setRange(0, 999)
+        self.angleJointIndex_spinBox.setToolTip(
+            "0-based index into the driver component's joint list."
+        )
+        angle_form.addRow("Joint index", self.angleJointIndex_spinBox)
+
+        drive_form.addRow(self.angleDriver_group)
+
         main_layout.addWidget(drive_group)
 
         shape_group = QtWidgets.QGroupBox("Shape", Form)
@@ -77,7 +130,8 @@ class Ui_Form(object):
         # Same layout as the stock IK Reference Array: list on the left, add /
         # remove stacked on the right, drag to reorder.
         ref_group = QtWidgets.QGroupBox("Tip Ctl Reference Array", Form)
-        ref_layout = QtWidgets.QHBoxLayout(ref_group)
+        ref_layout = QtWidgets.QVBoxLayout(ref_group)
+        ref_row = QtWidgets.QHBoxLayout()
 
         self.refArray_listWidget = QtWidgets.QListWidget(ref_group)
         self.refArray_listWidget.setDragDropOverwriteMode(True)
@@ -90,7 +144,7 @@ class Ui_Form(object):
             QtWidgets.QAbstractItemView.ExtendedSelection
         )
         self.refArray_listWidget.setSelectionRectVisible(False)
-        ref_layout.addWidget(self.refArray_listWidget)
+        ref_row.addWidget(self.refArray_listWidget)
 
         button_column = QtWidgets.QVBoxLayout()
         self.refArrayAdd_pushButton = QtWidgets.QPushButton("<<", ref_group)
@@ -104,7 +158,28 @@ class Ui_Form(object):
         button_column.addWidget(self.refArrayAdd_pushButton)
         button_column.addWidget(self.refArrayRemove_pushButton)
         button_column.addStretch()
-        ref_layout.addLayout(button_column)
+        ref_row.addLayout(button_column)
+        ref_layout.addLayout(ref_row)
+
+        self.ikrefJointDriver_checkBox = QtWidgets.QCheckBox(
+            "Joint reference", ref_group
+        )
+        self.ikrefJointDriver_checkBox.setToolTip(
+            "Follow a joint index on each listed component instead of a "
+            "control or locator. Use this for neck IK, spine chains, etc."
+        )
+        ref_layout.addWidget(self.ikrefJointDriver_checkBox)
+
+        ikref_joint_row = QtWidgets.QHBoxLayout()
+        ikref_joint_row.addWidget(QtWidgets.QLabel("Joint index", ref_group))
+        self.ikrefJointIndex_spinBox = QtWidgets.QSpinBox(ref_group)
+        self.ikrefJointIndex_spinBox.setRange(0, 999)
+        self.ikrefJointIndex_spinBox.setToolTip(
+            "0-based index into each referenced component's joint list."
+        )
+        ikref_joint_row.addWidget(self.ikrefJointIndex_spinBox)
+        ikref_joint_row.addStretch()
+        ref_layout.addLayout(ikref_joint_row)
 
         main_layout.addWidget(ref_group)
         main_layout.addStretch()
