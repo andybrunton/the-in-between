@@ -5,8 +5,7 @@ control. The bulge height is driven either by the base/tip distance closing
 (distance mode) or by the bow kinking at the tip, which covers the tip swinging
 off the chord and the tip turning on the spot (angle mode).
 
-See Cards/Bounded_Bow.html for the reference behaviour and bow_math.py for the
-curve maths.
+See Cards/Bounded_Bow.html for the reference behaviour.
 """
 
 from maya import cmds
@@ -17,7 +16,23 @@ from mgear.shifter import component
 
 from mgear.core import applyop, attribute, node, primitive, transform, vector
 
-from . import bow_math
+
+# --- bow geometry (pure python, no Maya) ---------------------------------------
+# Chord space: start at origin, end at (L, 0, 0), bulge along +Y.
+# x(u) = L * (kx_tangent(u) * tangentWeight + kx_base(u));  y(u) = h * ky(u)
+
+
+def _bow_bezier_coefficients(u):
+    a = 3.0 * (1.0 - u) ** 2 * u
+    b = 3.0 * (1.0 - u) * u**2
+    c = u**3
+    return 0.5 * (a - b), b + c, a + b
+
+
+def _bow_params(divisions):
+    if divisions < 2:
+        raise ValueError("bounded bow needs at least 2 divisions")
+    return [i / float(divisions - 1) for i in range(divisions)]
 
 # easing setting -> remapValue ramp as (position, value, interpolation)
 # interpolation: 1 = linear, 2 = smooth, 3 = spline
@@ -63,7 +78,7 @@ class Component(component.Main):
             and (self.settings.get("ikrefarray") or "").strip()
         )
 
-        # +X down the chord, +Y is the bulge plane. bow_math assumes this frame.
+        # +X down the chord, +Y is the bulge plane.
         t = transform.getTransformLookingAt(
             self.guide.apos[0],
             self.guide.apos[1],
@@ -122,7 +137,7 @@ class Component(component.Main):
             self.bow_root, self.getName("bow_twist"), t
         )
 
-        self.u_params = bow_math.params(self.settings["div"])
+        self.u_params = _bow_params(self.settings["div"])
         self.div_cns = []
         for i in range(len(self.u_params)):
             # addTransform re-parents world-preserving, so it needs the bow
@@ -242,7 +257,7 @@ class Component(component.Main):
 
         # Bow points ------------------------------------
         for div_cns, u in zip(self.div_cns, self.u_params):
-            kx_tangent, kx_base, ky = bow_math.bezier_coefficients(u)
+            kx_tangent, kx_base, ky = _bow_bezier_coefficients(u)
 
             tangent_term = node.createMulNode(self.tangent_att, kx_tangent)
             x_norm = pm.createNode("plusMinusAverage")
