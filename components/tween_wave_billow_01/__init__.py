@@ -53,8 +53,6 @@ DEFAULT_COMPLEXITY = 0.5
 
 # Complexity fades in four layers, so all four are always built.
 HARMONIC_LAYERS = len(HARMONICS)
-
-
 def envelope(u, mode):
     """How much of the wave reaches parameter u, given the pinned end."""
     if mode == PIN_FREE_START:

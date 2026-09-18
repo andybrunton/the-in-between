@@ -39,7 +39,6 @@ def params(divisions):
         raise ValueError("bounded bow needs at least 2 divisions")
     return [i / float(divisions - 1) for i in range(divisions)]
 
-
 # easing setting -> remapValue ramp as (position, value, interpolation)
 # interpolation: 1 = linear, 2 = smooth, 3 = spline
 EASING_RAMPS = {
