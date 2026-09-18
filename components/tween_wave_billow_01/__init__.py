@@ -11,8 +11,7 @@ Rolling a control twists its own end of the chain, blended along the span.
 Nothing about the wave is a build-time setting. Amplitude starts at zero so the
 rig binds on the guide pose, and the animator shapes the wave from there.
 
-See Cards/Wave_Billow.html for the reference behaviour and wave_math.py for the
-per point coefficients.
+See Cards/Wave_Billow.html for the reference behaviour.
 """
 
 from maya import cmds
@@ -24,7 +23,28 @@ from mgear.shifter import component
 from mgear.core import applyop, attribute, curve, node, primitive, transform
 from mgear.core import vector
 
-from . import wave_math
+# Point frame: +X down the spine tangent, +Y the wave axis. Layer h contributes
+#     dx = circularity * gain * sin(theta)
+#     dy =               gain * cos(theta)
+# The rig has no sine node. It feeds 2*theta into an eulerToQuat, whose quatX
+# and quatW for a pure rotateX are sin and cos of *half* the input. Coefficients
+# below are therefore contributions to 2*theta in degrees.
+
+# One phase unit is one full cycle. The attribute is deliberately unbounded, so
+# winding it past 1.0 keeps the wave travelling instead of snapping back.
+DEGREES_PER_PHASE_UNIT = 360.0
+
+# (freq_mult, amp_mult, phase_mult, (window_start, window_span))
+# The base layer is always at full weight; its window is never read.
+HARMONICS = (
+    (1, 1.00, 0.0, (0.00, 1.00)),
+    (2, 0.50, 0.5, (0.00, 0.33)),
+    (3, 0.33, 0.8, (0.33, 0.33)),
+    (4, 0.25, 1.2, (0.66, 0.34)),
+)
+
+PIN_FREE_START = 0
+PIN_PINNED = 2
 
 # Starting points for the anim attrs, straight off the card's own sliders.
 DEFAULT_FREQUENCY = 1.75
@@ -32,7 +52,42 @@ DEFAULT_CIRCULARITY = 0.75
 DEFAULT_COMPLEXITY = 0.5
 
 # Complexity fades in four layers, so all four are always built.
-HARMONIC_LAYERS = len(wave_math.HARMONICS)
+HARMONIC_LAYERS = len(HARMONICS)
+
+
+def envelope(u, mode):
+    """How much of the wave reaches parameter u, given the pinned end."""
+    if mode == PIN_FREE_START:
+        return 1.0 - u
+    if mode == PIN_PINNED:
+        return 4.0 * u * (1.0 - u)
+    return u
+
+
+def theta_gain(u, h):
+    """Degrees of 2*theta per unit of the frequency attribute, at u."""
+    return 2.0 * DEGREES_PER_PHASE_UNIT * HARMONICS[h][0] * u
+
+
+def phase_gain(h):
+    """Degrees of 2*theta per unit of the complexity attribute, for layer h."""
+    return 2.0 * DEGREES_PER_PHASE_UNIT * HARMONICS[h][2]
+
+
+def amp_gain(u, h, mode):
+    """Layer h's share of the amplitude at u.
+
+    Negative so the wave billows the same way round as the card: at zero phase
+    cos is 1, and the chain should hang off the spine rather than above it.
+    """
+    return -HARMONICS[h][1] * envelope(u, mode)
+
+
+def params(divisions):
+    """Evenly spaced u values for a chain of `divisions` joints."""
+    if divisions < 2:
+        raise ValueError("wave billow needs at least 2 divisions")
+    return [i / float(divisions - 1) for i in range(divisions)]
 
 
 ##########################################################
@@ -55,9 +110,9 @@ class Component(component.Main):
         self.rest_length = vector.getDistance(
             self.guide.apos[0], self.guide.apos[1]
         )
-        self.u_params = wave_math.params(self.settings["div"])
+        self.u_params = params(self.settings["div"])
 
-        # +X down the chord, +Y the wave axis. wave_math assumes this frame.
+        # +X down the chord, +Y the wave axis. The wave offsets assume this frame.
         t = transform.getTransformLookingAt(
             self.guide.apos[0],
             self.guide.apos[1],
@@ -333,7 +388,7 @@ class Component(component.Main):
         # One setRange holds all three complexity windows and clamps them.
         weights = pm.createNode("setRange")
         for axis, h in zip("XYZ", (1, 2, 3)):
-            start, span = wave_math.HARMONICS[h][3]
+            start, span = HARMONICS[h][3]
             pm.connectAttr(self.complexity_att, weights.attr("value" + axis))
             weights.attr("oldMin" + axis).set(start)
             weights.attr("oldMax" + axis).set(start + span)
@@ -349,13 +404,13 @@ class Component(component.Main):
         ]
 
         # -2 * phase is shared; each harmonic adds its complexity driven offset.
-        # The gain is what makes the slider worth animating: see wave_math.
+        # The gain is what makes the slider worth animating: 2*theta in degrees.
         base_phase = node.createMulNode(
-            self.phase_att, -2.0 * wave_math.DEGREES_PER_PHASE_UNIT
+            self.phase_att, -2.0 * DEGREES_PER_PHASE_UNIT
         )
         offsets = node.createMulNode(
             [self.complexity_att] * 3,
-            [wave_math.phase_gain(h) for h in (1, 2, 3)],
+            [phase_gain(h) for h in (1, 2, 3)],
         )
         shifted = pm.createNode("plusMinusAverage")
         pm.connectAttr(offsets.attr("output"), shifted.attr("input3D[0]"))
@@ -376,7 +431,7 @@ class Component(component.Main):
         for h in range(HARMONIC_LAYERS):
             two_theta = node.createAddNode(
                 node.createMulNode(
-                    self.freq_att, wave_math.theta_gain(u, h)
+                    self.freq_att, theta_gain(u, h)
                 ).attr("outputX"),
                 self.phase_terms[h],
             )
@@ -391,7 +446,7 @@ class Component(component.Main):
             )
 
             gain = node.createMulNode(
-                self.harmonic_amp[h], wave_math.amp_gain(u, h, mode)
+                self.harmonic_amp[h], amp_gain(u, h, mode)
             )
             layer = node.createMulNode(
                 [gain.attr("outputX"), gain.attr("outputX")],

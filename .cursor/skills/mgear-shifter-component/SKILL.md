@@ -18,10 +18,9 @@ Nearest stock template: `shifter_classic_components/hydraulic_01`.
 ```
 - [ ] 1. Read the card, extract the spec
 - [ ] 2. Decide drive + guide shape
-- [ ] 3. Write the maths module and its test
-- [ ] 4. Write guide.py, settingsUI.py, __init__.py
-- [ ] 5. Add a smoke_build.py case and make it pass
-- [ ] 6. Append any lesson to the rule
+- [ ] 3. Expand the card's maths into constant coefficients
+- [ ] 4. Write guide.py, settingsUI.py, __init__.py (maths lives in __init__.py)
+- [ ] 5. Append any lesson to the rule
 ```
 
 **1. Read the card.** `Cards/<Name>.html` is the spec. The `Pseudocode` block and the
@@ -33,18 +32,13 @@ points, remap it to 0..1, drive a shape. Offer both distance and angle drive via
 param unless the card only makes sense one way. Keep the guide minimal — root, tip, and a blade
 when a direction must be authored.
 
-**3. Maths first, in a Maya-free module.** Expand the card's formula algebraically so each joint
-needs constant coefficients and a couple of utility nodes rather than a live curve. Put it in
-`bow_math.py`-style module with a `test_*.py` beside it asserting against a naive direct
-implementation of the card formula. Run it in a second:
+**3. Maths first, inlined.** Expand the card's formula algebraically so each joint needs
+constant coefficients and a couple of utility nodes rather than a live curve. Put those
+helpers in `__init__.py` — no extra modules.
 
-```powershell
-& "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" test_<name>.py
-```
-
-**4. Write the component.** Four files in `components/tween_<card>_01/`:
-`__init__.py` (the `Component`), `guide.py` (`Guide` + `componentSettings`), `settingsUI.py`
-(hand-written Qt, no Designer round trip), and the maths module. `TYPE` must equal the folder name.
+**4. Write the component.** Three files in `components/tween_<card>_01/`:
+`__init__.py` (the `Component` plus maths), `guide.py` (`Guide` + `componentSettings`),
+`settingsUI.py` (hand-written Qt, no Designer round trip). `TYPE` must equal the folder name.
 Any new `addParam` after guides exist in the wild must also land in `_UPGRADE_PARAMS` and
 `upgrade_root` (see **Upgrading live guides**).
 

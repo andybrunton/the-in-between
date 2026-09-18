@@ -15,22 +15,38 @@ This site loads card HTML via `fetch()`, so use a local server (not `file://`):
 
 Components live in `components/`. Each subfolder is one Shifter guide type (e.g. `tween_bounded_bow_01`).
 
+Shifter discovers them via **`MGEAR_SHIFTER_COMPONENT_PATH`** — not `sys.path`. The value must be the folder that *contains* the component subfolders:
+
+`C:\Users\andre\Documents\GitHub\the-in-between\components`
+
 ### One-time setup
 
-**Option A — environment variable (recommended)**
+**Option A — `Maya.env` (recommended)**
 
-Add the `components` folder to `MGEAR_SHIFTER_COMPONENT_PATH` (the path must be the folder that *contains* the component subfolders, not a component folder itself). Restart Maya.
+Add to `C:\Users\andre\Documents\maya\Maya.env`:
 
-**Option B — register from the Script Editor**
-
-```python
-import sys
-sys.path.append(r"C:\path\to\the-in-between\components")
-import register
-register.register()
+```env
+MGEAR_SHIFTER_COMPONENT_PATH=C:\Users\andre\Documents\GitHub\the-in-between\components
 ```
 
-Re-run `register.register()` after editing component code so Shifter picks up changes without restarting Maya.
+Restart Maya.
+
+**Option B — `userSetup.py`**
+
+If you already use `C:\Users\andre\Documents\maya\scripts\userSetup.py`, append the path to the env var there (same folder as Option A). Restart Maya.
+
+### Reload after editing component code
+
+Without restarting Maya, run in the Script Editor:
+
+```python
+import os
+from mgear import shifter
+
+os.environ["MGEAR_SHIFTER_COMPONENT_PATH"] = r"C:\Users\andre\Documents\GitHub\the-in-between\components"
+shifter.clearComponentCache()
+print(shifter.getComponentDirectories())
+```
 
 ### Draw and build
 
@@ -51,16 +67,6 @@ Anim attributes land on the rig UI host (e.g. `global_C0_ctl`), prefixed with th
 | Wave Billow | `tween_wave_billow_01` | Available |
 | Skin Wrinkle | `tween_skin_wrinkle_01` | Planned |
 | 3D Volume | `tween_volume_3d_01` | Planned |
-
-### Developer checks
-
-```powershell
-$env:MAYA_MODULE_PATH="C:\path\to\mgear\release"
-cd components
-& "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" smoke_build.py
-```
-
-Pure maths modules have a `test_*.py` beside them (`mayapy test_bow_math.py`).
 
 ## Publish on GitHub Pages
 
