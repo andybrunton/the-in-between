@@ -135,6 +135,17 @@ Append a dated one-liner per mistake. Never delete entries.
   "the curve folded" (a deep fold spreads the arc and the gaps stay healthy); read the longitudinal
   offset directly and check a pair swapped order. Then sweep the controls at the same time, so a
   frame that is merely frozen cannot pass a continuity assertion by standing still.
+- 2026-10-31 `cmds.xform` with a world matrix on a joint that already has a
+  parent keeps the parent's orientation and only writes the translation.
+  Point- and orient-constrain a throwaway transform, then delete it.
+- 2026-10-31 A multiply into `joint.rotateX` arrives through a `unitConversion`.
+  `listConnections` on the joint plug returns that conversion node, which has
+  `input`, not `input1`. Walk `listHistory` to the `multDL` and read `input1`.
+- 2026-10-31 `owl_neck` aims `ik1` at a point offset on the head's +Y and takes the
+  aim up vector from `ik0`. Spinning the head around that offset (the twist
+  channel, `rotateY` by default) does not move the target, so the tip joint
+  stays put while pitch and bank still come through the aim. Apply that
+  channel on a parent of the tip joint driver, around the spline's Y.
 - 2026-09-10 For any list-of-scene-objects setting, copy the stock IK Reference Array layout
   (`arm_2jnt_01/settingsUI.py`): list on the left, `<<` / `>>` stacked on the right, plus
   `InternalMove` drag reordering. A plain list with buttons underneath reads as having no

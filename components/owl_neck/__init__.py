@@ -1,9 +1,10 @@
 """Owl neck. An IK spline from spine_ik_02, without the hip joint or FK controls.
 
 `division` is the number of neck joints, base through tip. Joint 0 sits on
-the root. The tip joint is the head parent and gets no twist leaf. Every
-other joint gets two leaf joints, A and B, whose rotateX is a 0-to-1 slice
-of the head control's rotateY.
+the root. Every joint except the tip gets two leaf joints, A and B, whose
+rotateX is a 0-to-1 slice of the head control's twist channel. The tip
+joint takes the full twist: the aim at the head cannot see a spin around
+the axis it is aiming along.
 
 The head is whatever guide root is first in the tip reference array. Leave
 that guide unparented from this neck. After every component's joints exist,
@@ -149,6 +150,7 @@ class Component(component.Main):
         self.scl_transforms = []
         self.twister = []
         self.ref_twist = []
+        self.tip_twist = None
 
         t = transform.getTransformLookingAt(
             self.guide.apos[0],
@@ -188,10 +190,19 @@ class Component(component.Main):
 
             # The spline aims Y down the neck. Rotating 90 on Z puts the
             # joint's X there instead. Squash and stretch stay on scl_ref's Y.
+            # The tip's extra parent spins around that Y. The aim constraint
+            # never writes this channel: its target sits on the twist axis.
+            jnt_parent = scl_ref
+            if i == division - 1:
+                self.tip_twist = primitive.addTransform(
+                    scl_ref,
+                    self.getName("tip_twist"),
+                    transform.getTransform(scl_ref))
+                jnt_parent = self.tip_twist
             jnt_drv = primitive.addTransform(
-                scl_ref,
+                jnt_parent,
                 self.getName("%s_jnt_drv" % i),
-                transform.getTransform(scl_ref))
+                transform.getTransform(jnt_parent))
             jnt_drv.rz.set(90)
             self.jnt_pos.append([jnt_drv, i])
 
@@ -396,6 +407,10 @@ class Component(component.Main):
         axis = TWIST_AXES[self.settings.get("twistAxis", 1)]
         for mult in mults:
             ctl.attr(axis) >> mult.input1
+        # Same channel as the leaves, full weight. Local Y of tip_twist is
+        # the neck, which is the joint's X after the 90 degree Z offset.
+        if self.tip_twist is not None:
+            ctl.attr(axis) >> self.tip_twist.ry
         self._constrain_ik_to_head(ctl)
         if joint is None:
             pm.displayWarning(
