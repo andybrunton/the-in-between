@@ -1610,14 +1610,22 @@ def _clamp01(t):
     return t
 
 
+def _hinge_axes(base, origin, t, normal=None):
+    """X down the spine, Y off the surface, Z the hinge. The bend is included.
+
+    normal is the surface normal. Without one, Y is the radial from the spine.
+    """
+    axis, along = base.spine(t)
+    if normal is None:
+        normal = _norm(_sub(origin, axis))
+    return orient_scale(axis, origin, normal, along)
+
+
 def _instance_custom(root, source, mesh_fn, base, rows, columns, row, column):
     t_root, _t_tip = scale_span(row, rows)
     angle = column_angle(row, column, columns)
     surface, normal = base.hit(mesh_fn, t_root, angle)
-    matrix = base.matrix
-    axis_point = _transform_point(matrix, (0.0, _sample_y(base.height, t_root), 0.0))
-    along = (matrix[4], matrix[5], matrix[6])
-    x, y, z = orient_scale(axis_point, surface, normal, along)
+    x, y, z = _hinge_axes(base, surface, t_root, normal)
     before = set(cmds.ls(long=True))
     cmds.instance(source)
     created = set(cmds.ls(long=True)) - before
@@ -1630,7 +1638,7 @@ def _instance_custom(root, source, mesh_fn, base, rows, columns, row, column):
     cmds.setAttr(inst + ".visibility", 1)
     cmds.xform(inst, matrix=_matrix(x, y, z, surface), worldSpace=True)
     _tag_feather(inst, row)
-    _store_frame(inst, base, surface, t_root, columns)
+    _store_frame(inst, base, surface, t_root, columns, normal)
     return inst
 
 
@@ -1770,16 +1778,17 @@ def _tag_feather(scale, row):
     cmds.setAttr(scale + "." + ROW, row)
 
 
-def _store_frame(feather, base, origin, t, columns):
+def _store_frame(feather, base, origin, t, columns, normal=None):
     """Root hinge and control size, kept on the feather for the guide.
 
     X runs down the feather along the base's spine, Y off the base. The
     frame is in the feather's own space, so moving the feather carries it.
-    Control size is about half a column wide at this root.
+    Control size is about half a column wide at this root. normal, when
+    passed, is the same surface normal the mesh was oriented with.
     """
-    axis, along = base.spine(t)
+    axis, _along = base.spine(t)
     offset = _sub(origin, axis)
-    x, y, z = orient_scale(axis, origin, _norm(offset), along)
+    x, y, z = _hinge_axes(base, origin, t, normal)
     world = om.MMatrix(_matrix(x, y, z, origin))
     parent = om.MMatrix(cmds.xform(feather, query=True, matrix=True, worldSpace=True))
     if not cmds.attributeQuery(FRAME, node=feather, exists=True):
@@ -2009,6 +2018,17 @@ def _check_spine():
         assert _length(_sub(guide[3], base.spine(1.0)[0])) < 1e-6
     _axis, top = CylinderBase(_IDENTITY, 4.0, 90.0).spine(1.0)
     assert abs(top[2] - 1.0) < 1e-6
+    # A bent custom feather hangs along the spine, not the cylinder's straight Y.
+    bent = CylinderBase(_IDENTITY, 4.0, 90.0)
+    axis, along = bent.spine(1.0)
+    x, y, _z = _hinge_axes(bent, _add(axis, (1.0, 0.0, 0.0)), 1.0, (1.0, 0.0, 0.0))
+    assert abs(_dot(x, along)) > 0.9
+    assert y[0] > 0.9
+    straight = CylinderBase(_IDENTITY, 4.0)
+    axis, _along = straight.spine(0.5)
+    x, y, _z = _hinge_axes(straight, _add(axis, (1.0, 0.0, 0.0)), 0.5, (1.0, 0.0, 0.0))
+    assert abs(x[1] + 1.0) < 1e-6
+    assert y[0] > 0.9
 
 
 _IDENTITY = (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
@@ -2120,6 +2140,17 @@ def create_guide():
         return []
     base = _cylinder_base(cyl)
 
+    undo = cmds.undoInfo(query=True, state=True)
+    if undo:
+        cmds.undoInfo(openChunk=True, chunkName="create plume guide")
+    try:
+        return _build_guide(base, feathers, frames)
+    finally:
+        if undo:
+            cmds.undoInfo(closeChunk=True)
+
+
+def _build_guide(base, feathers, frames):
     import mgear.pymaya as pm
     import mgear.shifter as shifter
 
@@ -2883,6 +2914,150 @@ def _driver_group():
     return name
 
 
+def station_point(index, parent_index, positions, axis):
+    """Point on the feather where neck joint index has weight 1.
+
+    axis runs from the feather root to the tip. Weight is 1 at
+    index / (count - 1). The root station stays on the root. A joint
+    past either end stays on that end, so the tip station sits on the tip.
+    """
+    if not axis:
+        return (0.0, 0.0, 0.0)
+    if parent_index is None or index == parent_index:
+        return axis[0]
+    count = len(positions)
+    if count < 2:
+        return axis[0]
+    return _point_at_parameter(axis, positions, index / float(count - 1))
+
+
+def _point_at_parameter(axis, positions, target):
+    """Point on axis whose chain parameter is target. Ends clamp.
+
+    ponytail: the first segment that brackets target wins. A centerline
+    that folds back along the neck would need the nearest sample instead.
+    """
+    if len(axis) == 1 or len(positions) < 2:
+        return axis[0]
+    keyed = [(chain_parameter(point, positions), point) for point in axis]
+    for (t0, p0), (t1, p1) in zip(keyed, keyed[1:]):
+        if (t0 - target) * (t1 - target) > 0.0:
+            continue
+        span = t1 - t0
+        u = 0.0 if abs(span) < 1e-8 else (target - t0) / span
+        return (
+            p0[0] + (p1[0] - p0[0]) * u,
+            p0[1] + (p1[1] - p0[1]) * u,
+            p0[2] + (p1[2] - p0[2]) * u,
+        )
+    end = min(keyed, key=lambda item: abs(item[0] - target))
+    return end[1]
+
+
+def _local_translate(matrix, point):
+    """Translate in matrix's local space that lands a child on point."""
+    origin = (matrix[12], matrix[13], matrix[14])
+    delta = _sub(point, origin)
+    x = (matrix[0], matrix[1], matrix[2])
+    y = (matrix[4], matrix[5], matrix[6])
+    z = (matrix[8], matrix[9], matrix[10])
+    det = _dot(x, _cross(y, z))
+    if abs(det) < 1e-12:
+        return (0.0, 0.0, 0.0)
+    return (
+        _dot(delta, _cross(y, z)) / det,
+        _dot(x, _cross(delta, z)) / det,
+        _dot(x, _cross(y, delta)) / det,
+    )
+
+
+def _station_offset(index, parent_index, positions, axis, matrix):
+    """Local translate from the feather root out to this station. Root is 0."""
+    if parent_index is None or index == parent_index:
+        return (0.0, 0.0, 0.0)
+    return _local_translate(
+        matrix, station_point(index, parent_index, positions, axis)
+    )
+
+
+def _feather_axis(points, matrix):
+    """Centerline from the feather joint to the tip.
+
+    A generated petal is rings of ACROSS_DIVS + 1, then one tip. The axis
+    takes the center of each ring. Anything else uses the point furthest
+    down the joint's X, which is the tip on this hinge.
+    """
+    root = (matrix[12], matrix[13], matrix[14])
+    n_across = ACROSS_DIVS + 1
+    n_along = ALONG_DIVS + 1
+    if len(points) == n_along * n_across + 1:
+        line = [root]
+        mid = n_across // 2
+        for i in range(n_along):
+            point = points[i * n_across + mid]
+            if _length(_sub(point, line[-1])) > 1e-5:
+                line.append(point)
+        tip = points[-1]
+        if _length(_sub(tip, line[-1])) > 1e-5:
+            line.append(tip)
+        return line
+    direction = (matrix[0], matrix[1], matrix[2])
+    far = None
+    far_d = None
+    for point in points:
+        dist = _dot(_sub(point, root), direction)
+        if far_d is None or dist > far_d:
+            far = point
+            far_d = dist
+    if far is None or _length(_sub(far, root)) < 1e-5:
+        return [root]
+    return [root, far]
+
+
+def _check_station_point():
+    """Two row gaps: root stays, the next joint is halfway, the far one is the tip."""
+    positions = [(0.0, float(i), 0.0) for i in range(5)]
+    root = (1.0, 4.0, 0.0)
+    mid = (1.4, 3.0, 0.2)
+    tip = (1.2, 2.0, 0.0)
+    axis = [root, mid, tip]
+    assert station_point(4, 4, positions, axis) == root
+    assert _length(_sub(station_point(3, 4, positions, axis), mid)) < 1e-6
+    assert _length(_sub(station_point(2, 4, positions, axis), tip)) < 1e-6
+    assert _length(_sub(station_point(0, 4, positions, axis), tip)) < 1e-6
+    halfway = station_point(3, 4, positions, [root, tip])
+    assert abs(halfway[1] - 3.0) < 1e-6 and abs(halfway[0] - 1.1) < 1e-6
+    scaled = [
+        2.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        5.0, 6.0, 7.0, 1.0,
+    ]
+    local = _local_translate(scaled, (7.0, 6.0, 7.0))
+    assert abs(local[0] - 1.0) < 1e-6 and abs(local[1]) < 1e-6 and abs(local[2]) < 1e-6
+    n_across = ACROSS_DIVS + 1
+    n_along = ALONG_DIVS + 1
+    points = []
+    for i in range(n_along):
+        for j in range(n_across):
+            points.append((float(j), float(i), 0.0))
+    points.append((float(n_across // 2), float(n_along), 0.0))
+    ident = [
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        float(n_across // 2), 0.0, 0.0, 1.0,
+    ]
+    line = _feather_axis(points, ident)
+    assert line[0] == (float(n_across // 2), 0.0, 0.0)
+    assert line[-1] == points[-1]
+    assert all(abs(point[0] - n_across // 2) < 1e-6 for point in line)
+    assert _station_offset(4, 4, positions, axis, ident) == (0.0, 0.0, 0.0)
+
+
+_check_station_point()
+
+
 def _drive_joint(driver, joint):
     """Write the driver's world pose onto the joint, like an mGear control.
 
@@ -2901,33 +3076,122 @@ def _drive_joint(driver, joint):
     cmds.rename(cns.name(), joint.split("|")[-1].replace("_jnt", "_cns"))
 
 
-def _make_station(name, neck, feather_joint, matrix, rotate_order, splay=None, ctl=None):
-    """Skin joint under the feather joint. The hinge follows this neck joint.
+def splay_blend(degrees):
+    """0 when the feather is shut, 1 at 90 degrees. Past either end stays put."""
+    if degrees <= 0.0:
+        return 0.0
+    if degrees >= 90.0:
+        return 1.0
+    return degrees / 90.0
 
-    The plug is the weighted hinge in degrees. The matrix constraint turns
-    that hinge into the joint's translate and rotate, which is what a game bakes.
-    """
+
+def _check_splay_blend():
+    assert splay_blend(0.0) == 0.0
+    assert abs(splay_blend(45.0) - 0.5) < 1e-9
+    assert splay_blend(90.0) == 1.0
+    assert splay_blend(-10.0) == 0.0
+    assert splay_blend(120.0) == 1.0
+
+
+_check_splay_blend()
+
+
+def _make_align(name, neck, matrix, rotate_order):
+    """Feather-root frame parent-constrained to this neck joint."""
     align = cmds.createNode("transform", name=name + "_align", parent=_driver_group())
     cmds.setAttr(align + ".rotateOrder", rotate_order)
     cmds.xform(align, worldSpace=True, matrix=matrix)
-    pose = cmds.createNode("transform", name=name + "_pose", parent=align)
+    cmds.parentConstraint(neck, align, maintainOffset=True)
+    return align
+
+
+def _hang_splay(align, rotate_order, splay=None, ctl=None):
+    """Splay, then the feather control, both about this hinge."""
+    short = align.split("|")[-1]
+    pose = cmds.createNode("transform", name=short.replace("_align", "_pose"), parent=align)
     cmds.setAttr(pose + ".rotateOrder", rotate_order)
     if splay:
         cmds.connectAttr(splay, pose + ".rotateZ", force=True)
-    grip = cmds.createNode("transform", name=name + "_grip", parent=pose)
+    grip = cmds.createNode("transform", name=short.replace("_align", "_grip"), parent=pose)
     cmds.setAttr(grip + ".rotateOrder", rotate_order)
     if ctl:
         for axis in ("X", "Y", "Z"):
             cmds.connectAttr(
                 ctl + ".rotate" + axis, grip + ".rotate" + axis, force=True
             )
-    cmds.parentConstraint(neck, align, maintainOffset=True)
+    return grip
+
+
+def _splay_weight(splay, name):
+    """0 when splay is shut, 1 at 90 degrees. Wind past that stays at the end.
+
+    The rotate plug arrives as degrees through Maya's unit conversion.
+    """
+    remap = cmds.createNode("remapValue", name=name + "_remap")
+    cmds.connectAttr(splay, remap + ".inputValue")
+    cmds.setAttr(remap + ".inputMin", 0.0)
+    cmds.setAttr(remap + ".inputMax", 90.0)
+    cmds.setAttr(remap + ".outputMin", 0.0)
+    cmds.setAttr(remap + ".outputMax", 1.0)
+    clamp = cmds.createNode("clamp", name=name + "_clamp")
+    cmds.setAttr(clamp + ".minR", 0.0)
+    cmds.setAttr(clamp + ".maxR", 1.0)
+    cmds.connectAttr(remap + ".outValue", clamp + ".inputR")
+    return clamp + ".outputR"
+
+
+def _put_place(parent, name, offset, rotate_order):
+    """Fixed translate out to where this station's weight is 1."""
+    place = cmds.createNode("transform", name=name + "_place", parent=parent)
+    cmds.setAttr(place + ".rotateOrder", rotate_order)
+    cmds.setAttr(
+        place + ".translate", offset[0], offset[1], offset[2], type="double3"
+    )
+    return place
+
+
+def _skin_joint(name, driver, feather_joint, rotate_order):
+    """One skinned joint. Rest is whatever the driver is at this moment."""
     joint = cmds.createNode("joint", name=name + "_jnt", parent=feather_joint)
     cmds.setAttr(joint + ".rotateOrder", rotate_order)
     cmds.setAttr(joint + ".segmentScaleCompensate", 0)
     cmds.setAttr(joint + ".radius", 0.15)
-    _drive_joint(grip, joint)
+    cmds.getAttr(driver + ".worldMatrix[0]")
+    _drive_joint(driver, joint)
     return cmds.ls(joint, long=True)[0]
+
+
+def _blend_places(name, hug, free, weight):
+    """World blend of the neck-hugging station and the rigid parented one."""
+    blend = cmds.createNode("blendMatrix", name=name + "_blend")
+    cmds.connectAttr(hug + ".worldMatrix[0]", blend + ".inputMatrix")
+    cmds.connectAttr(free + ".worldMatrix[0]", blend + ".target[0].targetMatrix")
+    cmds.connectAttr(weight, blend + ".target[0].weight")
+    mid = cmds.createNode("transform", name=name + "_mid", parent=_driver_group())
+    cmds.setAttr(mid + ".inheritsTransform", 0)
+    cmds.setAttr(mid + ".rotateOrder", 0)
+    dec = cmds.createNode("decomposeMatrix", name=name + "_dm")
+    cmds.connectAttr(blend + ".outputMatrix", dec + ".inputMatrix")
+    cmds.connectAttr(dec + ".outputTranslate", mid + ".translate")
+    cmds.connectAttr(dec + ".outputRotate", mid + ".rotate")
+    return mid
+
+
+def _hang_station(name, grip, feather_joint, rotate_order, offset):
+    """Joint drawn at the fixed offset down this feather, driven by grip."""
+    place = _put_place(grip, name, offset, rotate_order)
+    return _skin_joint(name, place, feather_joint, rotate_order)
+
+
+def _make_station(
+    name, neck, feather_joint, matrix, rotate_order,
+    splay=None, ctl=None, offset=(0.0, 0.0, 0.0),
+):
+    """One station with its own splay, when the feather has no neck parent."""
+    align = _make_align(name, neck, matrix, rotate_order)
+    grip = _hang_splay(align, rotate_order, splay, ctl)
+    return _hang_station(name, grip, feather_joint, rotate_order, offset)
+
 
 
 def twist_degrees(quat, axis):
@@ -3065,17 +3329,34 @@ def _twist_expression(twist):
     )
 
 
+def _splay_peaks(names):
+    """Peak splay channels. Falloff and rotate are left as they are."""
+    peaks = []
+    for name in names:
+        if name.startswith("splay") and name[len("splay"):].isdigit():
+            peaks.append(name)
+    return peaks
+
+
+assert _splay_peaks(
+    ["splay0", "splayFalloff0", "splay2", "wind", "splayRotate1"]
+) == ["splay0", "splay2"]
+assert _splay_peaks(["splay10", "splay"]) == ["splay10"]
+
+
 def _zero_splay(host):
-    """Splay 0 is the bind pose. The caller puts the values back."""
+    """Splay 0 is the bind pose. The caller puts the values back.
+
+    Every peak is cleared, including when a row number is missing. A walk
+    from splay0 would stop at the gap and bind the posed rows above it.
+    """
     saved = []
-    if not host:
+    if not host or not cmds.objExists(host):
         return saved
-    index = 0
-    while cmds.attributeQuery("splay%d" % index, node=host, exists=True):
-        plug = host + ".splay%d" % index
+    for name in _splay_peaks(cmds.listAttr(host, userDefined=True) or []):
+        plug = host + "." + name
         saved.append((plug, cmds.getAttr(plug)))
         cmds.setAttr(plug, 0)
-        index += 1
     # The hinge is an expression on the offset. Read it so the bind sees splay 0.
     for node in cmds.ls("feather_*_splay", type="transform") or []:
         cmds.getAttr(node + ".rotateZ")
@@ -3144,8 +3425,8 @@ def _mapped_weights(weights, influences):
     return [(joint, weight / total) for joint, weight in pairs]
 
 
-def _skin_to_chain(mesh, influences, positions):
-    """One linear skin. influences lines up with positions; None is skipped."""
+def _skin_weight_rows(points, influences, positions):
+    """One weight per influence for each point. None influences are skipped."""
     joints = []
     seen = set()
     for joint in influences:
@@ -3153,6 +3434,75 @@ def _skin_to_chain(mesh, influences, positions):
             continue
         seen.add(joint)
         joints.append(joint)
+    columns = {}
+    for index, joint in enumerate(joints):
+        columns[joint] = index
+    count = len(positions)
+    rows = []
+    width = len(joints)
+    for point in points:
+        row = [0.0] * width
+        for joint, weight in _mapped_weights(
+            skin_weights(chain_parameter(point, positions), count),
+            influences,
+        ):
+            column = columns.get(joint)
+            if column is not None:
+                row[column] += weight
+        rows.append(row)
+    return joints, rows
+
+
+def _check_skin_rows():
+    positions = [(0.0, 0.0, 0.0), (0.0, 2.0, 0.0)]
+    joints, rows = _skin_weight_rows(
+        [(0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 2.0, 0.0)],
+        ["a", "b"],
+        positions,
+    )
+    assert joints == ["a", "b"]
+    assert rows[0] == [1.0, 0.0]
+    assert abs(rows[1][0] - 0.5) < 1e-9 and abs(rows[1][1] - 0.5) < 1e-9
+    assert rows[2] == [0.0, 1.0]
+    joints, rows = _skin_weight_rows(
+        [(0.0, 2.0, 0.0)],
+        [None, "b"],
+        positions,
+    )
+    assert joints == ["b"] and rows == [[1.0]]
+
+
+_check_skin_rows()
+
+
+def _apply_skin_weights(skin, shape, joints, rows):
+    """Write every vertex in one call."""
+    import maya.api.OpenMayaAnim as oma
+
+    sel = om.MSelectionList()
+    sel.add(shape)
+    sel.add(skin)
+    dag = sel.getDagPath(0)
+    if dag.apiType() != om.MFn.kMesh:
+        dag.extendToShape()
+    fn = oma.MFnSkinCluster(sel.getDependNode(1))
+    indices = om.MIntArray()
+    for joint in joints:
+        chosen = om.MSelectionList()
+        chosen.add(joint)
+        indices.append(fn.indexForInfluenceObject(chosen.getDagPath(0)))
+    comp_fn = om.MFnSingleIndexedComponent()
+    comp = comp_fn.create(om.MFn.kMeshVertComponent)
+    comp_fn.addElements(om.MIntArray(range(len(rows))))
+    flat = []
+    for row in rows:
+        flat.extend(row)
+    fn.setWeights(dag, comp, indices, om.MDoubleArray(flat), True)
+
+
+def _skin_to_chain(mesh, influences, positions):
+    """One linear skin. influences lines up with positions; None is skipped."""
+    joints, rows = _skin_weight_rows(_world_points(mesh), influences, positions)
     if not joints:
         cmds.warning("No joints for %s." % mesh.split("|")[-1])
         return None
@@ -3166,25 +3516,9 @@ def _skin_to_chain(mesh, influences, positions):
         name=mesh.split("|")[-1] + "_skin",
     )
     skin = created[0] if isinstance(created, (list, tuple)) else created
-    raw = cmds.xform(mesh + ".vtx[*]", query=True, translation=True, worldSpace=True)
-    count = len(positions)
-    for index in range(len(raw) // 3):
-        point = (raw[index * 3], raw[index * 3 + 1], raw[index * 3 + 2])
-        weights = _mapped_weights(
-            skin_weights(chain_parameter(point, positions), count),
-            influences,
-        )
-        if not weights:
-            continue
-        full = {joint: 0.0 for joint in joints}
-        for joint, weight in weights:
-            full[joint] = full.get(joint, 0.0) + weight
-        cmds.skinPercent(
-            skin,
-            mesh + ".vtx[%d]" % index,
-            transformValue=list(full.items()),
-            normalize=True,
-        )
+    shape = _mesh_shape(mesh)
+    if shape and rows:
+        _apply_skin_weights(skin, shape, joints, rows)
     return skin
 
 
@@ -3195,9 +3529,13 @@ def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None)
     the matrix constraint on it is not a hinge rotate, and feeding that
     rotate into the stations turns splay into a twist.
 
-    With twist, every station follows its neck joint's bend but takes the
-    twist of the joint the feather hangs from, so the feather turns as one
-    piece instead of shearing between joints.
+    With twist, a shut feather follows each neck joint's bend but takes the
+    twist of the joint the feather hangs from, so it turns as one piece
+    instead of shearing between joints.
+
+    Splay blends that drape toward a second copy parented only to the neck
+    joint the feather hangs from. Fully open, the feather is that rigid
+    copy, so pulling the neck apart cannot lengthen it.
     """
     slot = _feather_slot(feather)
     if not slot:
@@ -3229,25 +3567,43 @@ def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None)
             % joint.split("|")[-1]
         )
     order = cmds.getAttr((ctl or joint) + ".rotateOrder")
-    # Every station sits on the root hinge, under the feather joint. The
-    # driver for each neck joint is what bends the feather. The pivot has
-    # to stay at the root: a pivot on the feather spins that bit in place.
+    # Shut: each station hugs its own neck joint. Open: every station is a
+    # fixed offset under the one neck joint this feather hangs from. The
+    # skinned joint blends those two by splay, 0 to 90. Joints are drawn
+    # where that station's weight is already 1. Bind runs with splay at 0,
+    # so the rest pose is the hug.
     matrix = cmds.xform(joint, query=True, matrix=True, worldSpace=True)
+    axis = _feather_axis(points, matrix)
     splay = _splay_offset_plug(ctl)
+    free_grip = None
+    weight = None
+    if parent_index is not None and splay:
+        free_align = _make_align(
+            "plumeStation_%d_%d_free" % (row, col),
+            necks[parent_index],
+            matrix,
+            order,
+        )
+        free_grip = _hang_splay(free_align, order, splay, ctl)
+        weight = _splay_weight(splay, "plumeStation_%d_%d_splay" % (row, col))
     influences = [None] * count
     for index in sorted(needed):
         target = necks[index]
         if twist is not None and parent_index is not None and index != parent_index:
             target = _twist_fix(twist, necks, positions, parent_index, index)
-        influences[index] = _make_station(
-            "plumeStation_%d_%d_%d" % (row, col, index),
-            target,
-            joint,
-            matrix,
-            order,
-            splay,
-            ctl,
-        )
+        name = "plumeStation_%d_%d_%d" % (row, col, index)
+        offset = _station_offset(index, parent_index, positions, axis, matrix)
+        if free_grip is None:
+            influences[index] = _make_station(
+                name, target, joint, matrix, order, splay, ctl, offset
+            )
+            continue
+        hug_align = _make_align(name + "_hug", target, matrix, order)
+        hug_grip = _hang_splay(hug_align, order, None, ctl)
+        hug = _put_place(hug_grip, name + "_hug", offset, order)
+        free = _put_place(free_grip, name + "_free", offset, order)
+        mid = _blend_places(name, hug, free, weight)
+        influences[index] = _skin_joint(name, mid, joint, order)
     name = "plume_feather_%d_%d_rig" % (row, col)
     dup = _duplicate_mesh(feather, group, name)
     _assign_scale_material(dup)
@@ -3487,15 +3843,49 @@ def _hook_neck_step():
     _hook_post_step("plume_neck_step.py")
 
 
+def _post_step_list(current, script_name, step):
+    """Comma list with this script's path. An older path for the same file is replaced."""
+    parts = [part.strip() for part in (current or "").split(",") if part.strip()]
+    seen = False
+    updated = []
+    for part in parts:
+        normal = part.replace("\\", "/")
+        if os.path.basename(normal) != script_name:
+            updated.append(normal)
+            continue
+        if seen:
+            continue
+        seen = True
+        updated.append(step)
+    if not seen:
+        updated.append(step)
+    return ",".join(updated)
+
+
+assert _post_step_list(
+    "", "plume_neck_step.py", "C:/tools/plume_neck_step.py"
+) == "C:/tools/plume_neck_step.py"
+assert _post_step_list(
+    "D:/old/plume_neck_step.py,C:/tools/plume_splay_step.py",
+    "plume_neck_step.py",
+    "C:/tools/plume_neck_step.py",
+) == "C:/tools/plume_neck_step.py,C:/tools/plume_splay_step.py"
+assert _post_step_list(
+    "D:/old/plume_neck_step.py,C:/tools/plume_splay_step.py,E:/other/plume_neck_step.py",
+    "plume_neck_step.py",
+    "C:/tools/plume_neck_step.py",
+) == "C:/tools/plume_neck_step.py,C:/tools/plume_splay_step.py"
+
+
 def _hook_post_step(script_name):
     guide = "guide"
     if not cmds.attributeQuery("postCustomStep", node=guide, exists=True):
         return
     step = os.path.join(os.path.dirname(__file__), script_name).replace("\\", "/")
     current = cmds.getAttr(guide + ".postCustomStep") or ""
-    if script_name not in current.replace("\\", "/"):
-        current = (current.rstrip(", ") + "," + step) if current.strip() else step
-        cmds.setAttr(guide + ".postCustomStep", current, type="string")
+    updated = _post_step_list(current, script_name, step)
+    if updated != current.replace("\\", "/"):
+        cmds.setAttr(guide + ".postCustomStep", updated, type="string")
     cmds.setAttr(guide + ".doPostCustomStep", 1)
 
 
@@ -3954,6 +4344,8 @@ class FlareSlider(QtWidgets.QWidget):
     """
 
     value_changed = QtCore.Signal(float)
+    drag_started = QtCore.Signal()
+    drag_finished = QtCore.Signal()
 
     def __init__(self, label, minimum, maximum, value, step):
         super(FlareSlider, self).__init__()
@@ -3988,6 +4380,8 @@ class FlareSlider(QtWidgets.QWidget):
         row.addWidget(self.readout)
 
         self.slider.valueChanged.connect(self._on_slider)
+        self.slider.sliderPressed.connect(self.drag_started)
+        self.slider.sliderReleased.connect(self.drag_finished)
 
     def _show_raw(self, raw):
         self.readout.setText("{:.3f}".format(raw / float(self._scale)))
@@ -4305,8 +4699,22 @@ class Dialog(QtWidgets.QDialog):
         layout.addWidget(self.feathers_section)
         layout.addWidget(self.guide_btn)
 
+        self._slider_drag = False
+        self._slider_chunk = False
         self.custom.textChanged.connect(self._apply_procedural)
         self.separate.toggled.connect(self._toggle_separate)
+        for slider in (
+            self.start,
+            self.end,
+            self.start_x,
+            self.start_z,
+            self.end_x,
+            self.end_z,
+            self.curve,
+            self.bend,
+        ):
+            slider.drag_started.connect(self._slider_pressed)
+            slider.drag_finished.connect(self._slider_released)
         for slider in (
             self.start,
             self.end,
@@ -4328,6 +4736,30 @@ class Dialog(QtWidgets.QDialog):
         if event.type() == QtCore.QEvent.ActivationChange and self.isActiveWindow():
             self.refresh()
         super(Dialog, self).changeEvent(event)
+
+    def closeEvent(self, event):
+        self._slider_drag = False
+        self._close_slider_chunk()
+        super(Dialog, self).closeEvent(event)
+
+    def _slider_pressed(self):
+        self._slider_drag = True
+
+    def _slider_released(self):
+        self._slider_drag = False
+        self._close_slider_chunk()
+
+    def _open_slider_chunk(self):
+        if self._slider_chunk or not cmds.undoInfo(query=True, state=True):
+            return
+        cmds.undoInfo(openChunk=True, chunkName="plume slider")
+        self._slider_chunk = True
+
+    def _close_slider_chunk(self):
+        if not self._slider_chunk:
+            return
+        self._slider_chunk = False
+        cmds.undoInfo(closeChunk=True)
 
     def resize_to_fit(self):
         QtWidgets.QApplication.processEvents()
@@ -4430,6 +4862,8 @@ class Dialog(QtWidgets.QDialog):
         self.resize_to_fit()
 
     def _push_flare(self, *_args):
+        if self._slider_drag:
+            self._open_slider_chunk()
         if not cylinder():
             return
         if self.separate.isChecked():
@@ -4445,6 +4879,8 @@ class Dialog(QtWidgets.QDialog):
         self.select_flare_btn.setVisible(flare_deformer() is not None)
 
     def _push_bend(self, *_args):
+        if self._slider_drag:
+            self._open_slider_chunk()
         if cylinder():
             set_bend(self.bend.value())
             self.select_bend_btn.setVisible(bend_deformer() is not None)
