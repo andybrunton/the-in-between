@@ -10,8 +10,8 @@ on the head is the same forward pitch at the tip. The neck IK and FK
 controls are hidden and locked, and the head joint hangs off the tip.
 Each feather row is parented to the nearest neck joint. After the rig is
 built, a post step on the head control lifts each row, parents
-each row of controls to the closest neck FK control, and skins the cylinder
-and each feather once. Extra joints under the feather joint bend the feather
+each row of controls to the closest neck FK control, and skins the feathers
+as one mesh. Extra joints under the feather joint bend the feather
 with the cylinder. Host channels live on the head control. Volume starts
 at 0. Splay is degrees, 0 to 90, per row, grouped as every Splay, then
 every Splay Falloff, then every Splay Rotate. Falloff 0 splays
@@ -80,6 +80,11 @@ EDGE_WIDTH_MAX = 1.5
 FEATHER_REVEAL_DRAWS = 48
 FEATHER_REVEAL_SLOW = 0.025
 FEATHER_REVEAL_FAST = 0.007
+
+# Guide icon and built control, times mGear's default of 1.
+# Applied only when this tool draws the control.
+HEAD_GUIDE_SIZE = 10.0
+CHEST_GUIDE_SIZE = 5.0
 
 _dialog = None
 
@@ -2084,7 +2089,28 @@ def _draw_control(guide_rig, parent, name, position, joint):
         worldSpace=True,
         translation=(position[0], position[1], position[2]),
     )
+    size = {"head": HEAD_GUIDE_SIZE, "chest": CHEST_GUIDE_SIZE}.get(name)
+    if size:
+        _scale_guide_icon(root, size)
     return root
+
+
+def _scale_guide_icon(root, size):
+    """Guide curves and the built control. Child guides stay where they are."""
+    if cmds.attributeQuery("ctlSize", node=root, exists=True):
+        cmds.setAttr(root + ".ctlSize", float(size))
+    pivot = cmds.xform(root, query=True, worldSpace=True, rotatePivot=True)
+    for shape in cmds.listRelatives(root, shapes=True, fullPath=True) or []:
+        if cmds.nodeType(shape) != "nurbsCurve":
+            continue
+        cmds.scale(
+            size,
+            size,
+            size,
+            shape + ".cv[*]",
+            pivot=(pivot[0], pivot[1], pivot[2]),
+            relative=True,
+        )
 
 
 def _ensure_control(guide_rig, parent, name, position, joint):
@@ -2123,7 +2149,9 @@ def create_guide():
     is parented to the neck joint closest to its row. World-orientation
     align is off. The neck is parented to chest. A root control is created
     at the origin, and a chest control at the neck base, when those are
-    missing. Both include a joint. Chest is parented to root. The head
+    missing. Both include a joint. Chest is parented to root. A chest
+    this tool draws is 5 times the default size, and a head is 10.
+    One that was already in the scene keeps its size. The head
     is parented to chest, on the tip, and is not a child of the neck.
     The head guide is the UI host, so built channels land on the head
     control. A post step then aims the neck tip at that head. Running
@@ -2305,8 +2333,8 @@ def add_splay():
     splay is the tight mesh. Channels live on the head control: every Splay,
     then every Splay Falloff, then every Splay Rotate, then Wind. Volume's
     default is 0. Wind breathes that pose. Wind Offset scrubs the noise.
-    Safe to run again. Skins the cylinder and each feather once, with a
-    station joint on every neck joint the feather crosses.
+    Safe to run again. Skins one feather mesh, with a station joint on
+    every neck joint each feather crosses.
     """
     controls = _feather_controls()
     if not controls:
@@ -2782,12 +2810,13 @@ def _reparent(child, parent):
 
 
 def _pin_feathers(host=None):
-    """Skin the cylinder and each feather once. Safe to run again.
+    """Skin the feathers as one mesh. Safe to run again.
 
-    The cylinder goes on the neck joints. Each feather goes on station
-    joints parented under its feather joint. A driver beside the skeleton
-    follows the neck, and mGear's matrix constraint writes that onto the
-    station.
+    Each feather is weighted to station joints under its feather joint.
+    Those joints are labeled, the meshes are combined in that same vertex
+    order, and the weights are written onto the one mesh. It is parented
+    under plume_rig_drivers. A driver beside the skeleton follows the neck,
+    and mGear's matrix constraint writes that onto the station.
     """
     _clear_rig_geo()
     necks = _neck_division_joints()
@@ -2810,27 +2839,34 @@ def _pin_feathers(host=None):
     saved = _zero_splay(host)
     twist = {"reads": {}, "fixes": {}}
     try:
-        group = _empty_under_setup("plume_rig_geo")
-        cmds.setAttr(group + ".inheritsTransform", False)
-        cyl = cylinder()
-        if cyl:
-            dup = _duplicate_mesh(cyl, group, "plume_cylinder_rig")
-            _skin_to_chain(dup, necks, positions)
+        drivers = _driver_group()
+        pieces = []
         for feather in feathers:
             slot = _feather_slot(feather)
             joint = joints.get(slot) if slot else None
             if not joint:
                 cmds.warning("No joint for %s." % feather.split("|")[-1])
                 continue
-            _bind_feather(
+            bound = _bind_feather(
                 feather,
                 joint,
                 necks,
                 positions,
-                group,
+                drivers,
                 controls.get(slot),
                 twist,
             )
+            if bound:
+                pieces.append((slot, bound))
+        pieces.sort(key=lambda item: item[0])
+        if pieces:
+            _skin_combined(
+                [item[1][0] for item in pieces],
+                [item[1][1:] for item in pieces],
+                drivers,
+            )
+        else:
+            cmds.warning("No feathers were bound.")
         _twist_expression(twist)
         author = author_root()
         if author:
@@ -2841,10 +2877,9 @@ def _pin_feathers(host=None):
 
 def _clear_rig_geo():
     """Drop the previous bind so the feather setup can run again."""
-    if cmds.objExists("plume_rig_geo"):
-        cmds.delete("plume_rig_geo")
-    if cmds.objExists("plume_rig_drivers"):
-        cmds.delete("plume_rig_drivers")
+    for name in ("plume_rig_geo", "plume_cylinder_rig", "plume_feathers_rig", "plume_rig_drivers"):
+        if cmds.objExists(name):
+            cmds.delete(name)
     old = (cmds.ls("plumeStation_*") or []) + (cmds.ls("plumeTwist*") or [])
     if old:
         cmds.delete(old)
@@ -2884,34 +2919,32 @@ def _world_points(mesh):
     return [(raw[i], raw[i + 1], raw[i + 2]) for i in range(0, len(raw), 3)]
 
 
-def _rig_setup():
-    """mGear's setup group. |rig|setup when the rig keeps its default name."""
+def _rig_model():
+    """Built rig root. |rig when the rig keeps its default name."""
     for model in cmds.ls("*.is_rig", objectsOnly=True, long=True) or []:
-        if not cmds.getAttr(model + ".is_rig"):
-            continue
-        for kid in cmds.listRelatives(model, children=True, fullPath=True) or []:
-            if kid.split("|")[-1] == "setup":
-                return kid
-    found = cmds.ls("|rig|setup", long=True)
+        if cmds.getAttr(model + ".is_rig"):
+            return model
+    found = cmds.ls("|rig", long=True)
     return found[0] if found else None
 
 
-def _empty_under_setup(name):
-    """Empty group under rig|setup. World, when the post step has no rig yet."""
-    parent = _rig_setup()
-    if parent:
-        return cmds.group(empty=True, name=name, parent=parent)
-    cmds.warning("No rig|setup. %s stays at the world." % name)
-    return cmds.group(empty=True, name=name)
-
-
 def _driver_group():
-    """Hinge transforms live here, off the skeleton, so export stays joints."""
+    """Hinge transforms and the skinned feather mesh. Sibling of setup.
+
+    The group turns inheritsTransform off so a moved rig does not double
+    the skin. The hinge transforms stay in this group, off the skeleton.
+    """
     name = "plume_rig_drivers"
-    if not cmds.objExists(name):
-        node = _empty_under_setup(name)
-        cmds.setAttr(node + ".visibility", 0)
-    return name
+    if cmds.objExists(name):
+        return cmds.ls(name, long=True)[0]
+    parent = _rig_model()
+    if parent:
+        node = cmds.group(empty=True, name=name, parent=parent)
+    else:
+        cmds.warning("No rig. plume_rig_drivers stays at the world.")
+        node = cmds.group(empty=True, name=name)
+    cmds.setAttr(node + ".inheritsTransform", False)
+    return cmds.ls(node, long=True)[0]
 
 
 def station_point(index, parent_index, positions, axis):
@@ -3158,7 +3191,9 @@ def _skin_joint(name, driver, feather_joint, rotate_order):
     cmds.setAttr(joint + ".radius", 0.15)
     cmds.getAttr(driver + ".worldMatrix[0]")
     _drive_joint(driver, joint)
-    return cmds.ls(joint, long=True)[0]
+    joint = cmds.ls(joint, long=True)[0]
+    _label_joint(joint)
+    return joint
 
 
 def _blend_places(name, hug, free, weight):
@@ -3500,9 +3535,57 @@ def _apply_skin_weights(skin, shape, joints, rows):
     fn.setWeights(dag, comp, indices, om.MDoubleArray(flat), True)
 
 
-def _skin_to_chain(mesh, influences, positions):
-    """One linear skin. influences lines up with positions; None is skipped."""
-    joints, rows = _skin_weight_rows(_world_points(mesh), influences, positions)
+def _stack_weight_rows(parts):
+    """parts is (joints, rows) per mesh, in vertex order. One shared joint list."""
+    order = []
+    index = {}
+    for joints, _rows in parts:
+        for joint in joints:
+            if joint not in index:
+                index[joint] = len(order)
+                order.append(joint)
+    width = len(order)
+    stacked = []
+    for joints, mesh_rows in parts:
+        columns = [index[joint] for joint in joints]
+        for row in mesh_rows:
+            full = [0.0] * width
+            for column, weight in zip(columns, row):
+                full[column] += weight
+            stacked.append(full)
+    return order, stacked
+
+
+def _check_stack_weight_rows():
+    joints, rows = _stack_weight_rows([
+        (["a"], [[1.0]]),
+        (["b", "a"], [[0.25, 0.75]]),
+    ])
+    assert joints == ["a", "b"]
+    assert rows[0] == [1.0, 0.0]
+    assert abs(rows[1][0] - 0.75) < 1e-9 and abs(rows[1][1] - 0.25) < 1e-9
+    assert _stack_weight_rows([]) == ([], [])
+
+
+_check_stack_weight_rows()
+
+
+def _label_joint(joint):
+    """Unique Other label so copySkinWeights can match this influence by label.
+
+    side is Center and type is Other. otherType is the joint name without
+    the _jnt suffix, so two station joints never share a label.
+    """
+    short = joint.split("|")[-1]
+    if short.endswith("_jnt"):
+        short = short[:-4]
+    cmds.setAttr(joint + ".side", 0)
+    cmds.setAttr(joint + ".type", 18)
+    cmds.setAttr(joint + ".otherType", short, type="string")
+
+
+def _skin_mesh(mesh, joints, rows):
+    """One linear skin with these weights. rows already match the vertex order."""
     if not joints:
         cmds.warning("No joints for %s." % mesh.split("|")[-1])
         return None
@@ -3517,13 +3600,68 @@ def _skin_to_chain(mesh, influences, positions):
     )
     skin = created[0] if isinstance(created, (list, tuple)) else created
     shape = _mesh_shape(mesh)
-    if shape and rows:
+    count = cmds.polyEvaluate(mesh, vertex=True) if shape else None
+    if shape and rows and count == len(rows):
         _apply_skin_weights(skin, shape, joints, rows)
+    elif shape:
+        cmds.warning(
+            "Vertex count %s does not match %d weights on %s."
+            % (count, len(rows), mesh.split("|")[-1])
+        )
     return skin
 
 
+def _combine_meshes(meshes, parent, name):
+    """One mesh. Vertex order is the input order. Sources are removed."""
+    parent = cmds.ls(parent, long=True)[0]
+    if len(meshes) == 1:
+        node = cmds.ls(meshes[0], long=True)[0]
+        current = cmds.listRelatives(node, parent=True, fullPath=True) or []
+        if not current or current[0] != parent:
+            node = cmds.parent(node, parent)[0]
+        if node.split("|")[-1] != name:
+            node = cmds.rename(node, name)
+        return cmds.ls(node, long=True)[0]
+    result = cmds.polyUnite(
+        meshes, constructionHistory=False, mergeUVSets=True, name=name
+    )
+    united = None
+    for node in result:
+        if cmds.objExists(node) and cmds.nodeType(node) == "transform":
+            united = node
+            break
+    if not united:
+        cmds.warning("Could not combine the feathers.")
+        return None
+    for mesh in meshes:
+        if cmds.objExists(mesh):
+            cmds.delete(mesh)
+    current = cmds.listRelatives(united, parent=True, fullPath=True) or []
+    if not current or current[0] != parent:
+        united = cmds.parent(united, parent)[0]
+    return cmds.ls(united, long=True)[0]
+
+
+def _skin_combined(meshes, parts, parent):
+    """Combine, then write the per-feather weights in that same vertex order.
+
+    Feathers overlap, so a closest-point transfer can pick up a neighbor.
+    The combine keeps each feather's vertices in order, and the rows were
+    computed for those vertices. Labels are for a later copy onto another mesh.
+    """
+    joints, rows = _stack_weight_rows(parts)
+    mesh = _combine_meshes(meshes, parent, "plume_feathers_rig")
+    if not mesh:
+        return None
+    _assign_scale_material(mesh)
+    return _skin_mesh(mesh, joints, rows)
+
+
 def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None):
-    """Stations for the neck joints this feather crosses, then one skin.
+    """Stations for the neck joints this feather crosses.
+
+    Returns the duplicate mesh and its weight rows. The caller combines
+    those meshes and writes one skin.
 
     The feather joint stays on the control. It is not a skin influence:
     the matrix constraint on it is not a hinge rotate, and feeding that
@@ -3606,8 +3744,12 @@ def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None)
         influences[index] = _skin_joint(name, mid, joint, order)
     name = "plume_feather_%d_%d_rig" % (row, col)
     dup = _duplicate_mesh(feather, group, name)
-    _assign_scale_material(dup)
-    _skin_to_chain(dup, influences, positions)
+    joints, rows = _skin_weight_rows(_world_points(dup), influences, positions)
+    if not joints:
+        cmds.delete(dup)
+        cmds.warning("No joints for %s." % feather.split("|")[-1])
+        return None
+    return dup, joints, rows
 
 
 def _place_head(guide_rig, chest, parked, tip):
@@ -4628,7 +4770,8 @@ class Dialog(QtWidgets.QDialog):
             "One more neck joint than feather rows, and one jointed control "
             "per feather on the nearest neck joint. The neck follows the "
             "cylinder bend and is parented to chest. The head is parented "
-            "to chest, not the neck, and drives the tip after the build."
+            "to chest, not the neck, and drives the tip after the build. "
+            "A head or chest drawn here is 10 and 5 times the default size."
         )
 
         cylinder_section = CollapsibleFrame("Create Base Cylinder")
