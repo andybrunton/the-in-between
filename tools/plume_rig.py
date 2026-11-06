@@ -57,6 +57,13 @@ CYLINDER_AROUND_DIVS = 16
 SURFACE_PAD = 0.02
 OVERLAP_LIFT = 0.03
 ROW_LIFT = 0.065
+# Share of its row's twist a feather turns as one piece. 1 = rigid feathers but
+# rows cut through each other; 0 = feathers follow their own joint, clean but shear.
+TWIST_RIGIDITY = 0.5
+# Joints inserted across each gap between stations. Linear skinning shrinks a
+# feather where two influences twist far apart; more steps keep each blend small.
+# 1 inserts nothing.
+TWIST_STEPS = 2
 
 # Shoulder wider than one column, so neighbors overlap. Length is two row
 # heights, so each feather hangs over the row below.
@@ -486,18 +493,23 @@ def wind_hinge(pose, wave, wind):
     return hinge
 
 
-def _splay_expression(host, row, feathers):
+def _splay_expression(host, row, feathers, twist=None):
     """MEL for one row. feathers is (degrees, node), column order.
 
     Same curve as splay_weights, then the same gust as wind_hinge.
     0 degrees is +X. The gust is noise at wind_sample, scrubbed by Wind Offset.
+    twist is (plug, share): the row's ring is turned by plug * share, so the
+    centre is moved the same amount and keeps its direction in root space.
     """
     tie = math.degrees(_SPLAY_TIE)
     count = len(feathers)
+    spin = ""
+    if twist:
+        spin = " + %s * %.9g" % (twist[0], twist[1])
     lines = [
         "// Same curve as splay_weights, then wind_hinge. 0 degrees is +X.",
         "float $fall = %s.splayFalloff%d;" % (host, row),
-        "float $rot = %s.splayRotate%d;" % (host, row),
+        "float $rot = %s.splayRotate%d%s;" % (host, row, spin),
         "float $peak = %s.splay%d;" % (host, row),
         "float $wind = %s.wind;" % host,
         "float $off = %s.windOffset;" % host,
@@ -700,6 +712,11 @@ def _check_layout():
     assert "head_C0_ctl.splayRotate0" in text
     assert "head_C0_ctl.wind;" in text
     assert "head_C0_ctl.windOffset;" in text
+    assert "splayRotate0;" in text
+    spun = _splay_expression(
+        "head_C0_ctl", 0, [(0.0, "f")], ("head_C0_ctl.rotateY", 0.5)
+    )
+    assert "splayRotate0 + head_C0_ctl.rotateY * 0.5;" in spun
     assert _splay_channel_names([0, 2]) == [
         "splay0",
         "splay2",
@@ -2696,9 +2713,34 @@ def _drive_splay_row(host, row, columns, offsets):
         return
     cmds.expression(
         name=name,
-        string=_splay_expression(host.split("|")[-1], row, feathers),
+        string=_splay_expression(
+            host.split("|")[-1], row, feathers, _row_twist(row, offsets)
+        ),
         alwaysEvaluate=False,
     )
+
+
+def _row_twist(row, offsets):
+    """(head rotateY plug, share) for this row, or None.
+
+    The neck gives its joint index / (count - 1) of the head's ry, the same
+    share _twist_expression assumes. ponytail: ry alone, so a pitched head
+    is off by the extra twist the bend adds. Upgrade: read the measured twist.
+    """
+    head = _solo("head_*_ctl")
+    necks = _neck_division_joints()
+    if not head or len(necks) < 2:
+        return None
+    long_necks = [cmds.ls(neck, long=True)[0] for neck in necks]
+    for col, _node in offsets:
+        for joint in cmds.ls("feather_%d_%d_*_jnt" % (row, col), long=True) or []:
+            if _feather_joint_slot(joint) != (row, col):
+                continue
+            parent = cmds.listRelatives(joint, parent=True, fullPath=True) or []
+            if parent and cmds.ls(parent[0], long=True)[0] in long_necks:
+                index = long_necks.index(cmds.ls(parent[0], long=True)[0])
+                return head.split("|")[-1] + ".rotateY", index / float(len(necks) - 1)
+    return None
 
 
 def _splay_offset_plug(ctl):
@@ -2837,7 +2879,7 @@ def _pin_feathers(host=None):
         return
     positions = [_world_translation(joint) for joint in necks]
     saved = _zero_splay(host)
-    twist = {"reads": {}, "fixes": {}}
+    twist = {"reads": {}, "fixes": {}, "count": len(necks)}
     try:
         drivers = _driver_group()
         pieces = []
@@ -3275,21 +3317,34 @@ def _check_twist():
 _check_twist()
 
 
+def _twist_base(twist, necks):
+    """(inverse node, bind rotation) of the joint above the neck, or None. Made once."""
+    if "base" not in twist:
+        parent = cmds.listRelatives(necks[0], parent=True, fullPath=True)
+        twist["base"] = None
+        if parent:
+            m = cmds.xform(parent[0], query=True, matrix=True, worldSpace=True)
+            rows = [_norm(m[0:3]), _norm(m[4:7]), _norm(m[8:11])]
+            bind = [v for row in rows for v in (row[0], row[1], row[2], 0.0)] + [0, 0, 0, 1.0]
+            inverse = cmds.createNode("inverseMatrix", name="plumeTwistBase_inv")
+            cmds.connectAttr(parent[0] + ".worldMatrix[0]", inverse + ".inputMatrix")
+            twist["base"] = (inverse, bind)
+    return twist["base"]
+
+
 def _twist_reader(twist, necks, positions, index):
     """(decompose node, bone axis, orient node) for one neck joint, made once.
 
-    The decompose node holds the joint's rotation since the pin, in its own
-    bind-local axes. The bone axis is the direction to the next joint,
+    The decompose node holds the joint's rotation since the pin, relative
+    to the joint above the neck, in its own bind-local axes. The bone axis is the direction to the next joint,
     taken into those axes, so it is the same line whatever the joint's own
-    orientation. The orient node rides the joint with its Y on that line.
+    orientation. It is also the line _align_neck_to_head twists this joint
+    about. The orient node rides the joint with its Y on that line.
     """
     if index in twist["reads"]:
         return twist["reads"][index]
     neck = necks[index]
-    if index + 1 < len(positions):
-        bone = _norm(_sub(positions[index + 1], positions[index]))
-    else:
-        bone = _norm(_sub(positions[index], positions[index - 1]))
+    bone = _neck_bone(positions, index)
     m = cmds.xform(neck, query=True, matrix=True, worldSpace=True)
     rows = [_norm(m[0:3]), _norm(m[4:7]), _norm(m[8:11])]
     axis = tuple(_dot(bone, row) for row in rows)
@@ -3303,7 +3358,15 @@ def _twist_reader(twist, necks, positions, index):
     name = "plumeTwist_%d" % index
     mult = cmds.createNode("multMatrix", name=name + "_mm")
     cmds.connectAttr(neck + ".worldMatrix[0]", mult + ".matrixIn[0]")
-    cmds.setAttr(mult + ".matrixIn[1]", *bind_inv, type="matrix")
+    base = _twist_base(twist, necks)
+    if base:
+        # Rotation relative to the neck's base, so the whole character
+        # moving or turning reads as no twist at all.
+        cmds.connectAttr(base[0] + ".outputMatrix", mult + ".matrixIn[1]")
+        cmds.setAttr(mult + ".matrixIn[2]", *base[1], type="matrix")
+        cmds.setAttr(mult + ".matrixIn[3]", *bind_inv, type="matrix")
+    else:
+        cmds.setAttr(mult + ".matrixIn[1]", *bind_inv, type="matrix")
     decompose = cmds.createNode("decomposeMatrix", name=name + "_dm")
     cmds.connectAttr(mult + ".matrixSum", decompose + ".inputMatrix")
     ref = (0.0, 0.0, 1.0) if abs(bone[2]) < 0.9 else (1.0, 0.0, 0.0)
@@ -3327,6 +3390,9 @@ def _twist_fix(twist, necks, positions, row_index, index):
     Its Y is the bone. The expression writes the row joint's twist minus
     this joint's own, so a station constrained to it keeps this joint's
     bend and takes the row joint's twist. One per pair, shared by the row.
+    Each station turns about its own joint's bone, so the feather stays
+    on the neck's surface as the neck curves. A single shared axis would
+    keep the feather rigid, but its rows then cut through each other.
     """
     key = (row_index, index)
     if key not in twist["fixes"]:
@@ -3340,10 +3406,11 @@ def _twist_fix(twist, necks, positions, row_index, index):
 
 
 def _twist_expression(twist):
-    """One expression: each twist fix turns by row twist minus own twist."""
+    """One expression: each twist fix turns by TWIST_RIGIDITY of (row twist minus own twist)."""
     if not twist["fixes"]:
         return
-    lines = ["float $w, $s;"]
+    head = _solo("head_*_ctl")
+    lines = ["float $w, $s;", "float $r = %s;" % (head + ".rotateY" if head else "0")]
     for index, (decompose, axis, _orient) in sorted(twist["reads"].items()):
         lines.append(
             "$w = %s.outputQuatW; $s = %.9g * %s.outputQuatX + %.9g * %s.outputQuatY"
@@ -3352,10 +3419,17 @@ def _twist_expression(twist):
         )
         lines.append("if ($w < 0.0) { $w = -$w; $s = -$s; }")
         lines.append("float $t%d = rad_to_deg(2.0 * atan2($s, $w));" % index)
+        if head:
+            # The read is only good to +-180. Pick the turn nearest the share of the
+            # head ry this joint was given, so rows do not flip as ry goes past 180.
+            lines.append(
+                "$t%d += 360.0 * floor(($r * %.9g - $t%d) / 360.0 + 0.5);"
+                % (index, index / float(max(twist["count"] - 1, 1)), index)
+            )
     for (row_index, index), fix in sorted(twist["fixes"].items()):
         lines.append(
-            "%s.rotateY = $t%d - $t%d;"
-            % (fix.split("|")[-1], row_index, index)
+            "%s.rotateY = %g * ($t%d - $t%d);"
+            % (fix.split("|")[-1], TWIST_RIGIDITY, row_index, index)
         )
     cmds.expression(
         name="plumeTwistExpr",
@@ -3657,6 +3731,95 @@ def _skin_combined(meshes, parts, parent):
     return _skin_mesh(mesh, joints, rows)
 
 
+def twist_gap_positions(positions, present, steps):
+    """Neck positions with `steps - 1` points inserted across each live gap.
+
+    A gap is live when both ends have a station. The new points sit on the
+    straight line between those ends, so the chain's shape does not change.
+    """
+    out = []
+    steps = max(int(steps), 1)
+    for index, pos in enumerate(positions):
+        out.append(pos)
+        nxt = index + 1
+        if (
+            steps < 2
+            or nxt >= len(positions)
+            or not present[index]
+            or not present[nxt]
+        ):
+            continue
+        span = _sub(positions[nxt], pos)
+        for step in range(1, steps):
+            out.append(_add(pos, _mul(span, step / float(steps))))
+    return out
+
+
+def _check_twist_gaps():
+    """A point halfway along a gap lands on the middle inserted joint."""
+    positions = [(0.0, 0.0, 0.0), (0.0, 4.0, 0.0)]
+    filled = twist_gap_positions(positions, [True, True], 4)
+    assert len(filled) == 5
+    assert abs(filled[2][1] - 2.0) < 1e-6
+    assert skin_weights(chain_parameter((0.0, 2.0, 0.0), filled), 5) == [(2, 1.0)]
+    assert twist_gap_positions(positions, [True, False], 4) == positions
+    assert twist_gap_positions(positions, [True, True], 1) == positions
+
+
+_check_twist_gaps()
+
+
+def _tween_joint(name, start, end, fraction, feather_joint, rotate_order):
+    """Joint held on a quaternion blend of two stations, so it keeps its size.
+
+    Linear skinning between the stations is what collapses the feather. This
+    joint takes the rotation blend, and the skin then only blends a short step.
+    """
+    blend = cmds.createNode("pairBlend", name=name + "_pb")
+    cmds.setAttr(blend + ".rotInterpolation", 1)
+    cmds.setAttr(blend + ".weight", fraction)
+    for src, slot in ((start, "1"), (end, "2")):
+        dec = cmds.createNode("decomposeMatrix", name=name + "_dm" + slot)
+        cmds.connectAttr(src + ".worldMatrix[0]", dec + ".inputMatrix")
+        cmds.connectAttr(dec + ".outputTranslate", blend + ".inTranslate" + slot)
+        cmds.connectAttr(dec + ".outputRotate", blend + ".inRotate" + slot)
+    mid = cmds.createNode("transform", name=name + "_mid", parent=_driver_group())
+    cmds.setAttr(mid + ".inheritsTransform", 0)
+    cmds.connectAttr(blend + ".outTranslate", mid + ".translate")
+    cmds.connectAttr(blend + ".outRotate", mid + ".rotate")
+    return _skin_joint(name, mid, feather_joint, rotate_order)
+
+
+def _fill_twist_gaps(influences, positions, feather_joint, rotate_order, name):
+    """Stations plus a joint on each even step between neighbours."""
+    present = [bool(joint) for joint in influences]
+    filled = twist_gap_positions(positions, present, TWIST_STEPS)
+    if len(filled) == len(positions):
+        return influences, positions
+    out = []
+    steps = max(int(TWIST_STEPS), 1)
+    for index, joint in enumerate(influences):
+        out.append(joint)
+        nxt = index + 1
+        if (
+            steps < 2
+            or nxt >= len(influences)
+            or not joint
+            or not influences[nxt]
+        ):
+            continue
+        for step in range(1, steps):
+            out.append(_tween_joint(
+                "%s_t%d_%d" % (name, index, step),
+                joint,
+                influences[nxt],
+                step / float(steps),
+                feather_joint,
+                rotate_order,
+            ))
+    return out, filled
+
+
 def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None):
     """Stations for the neck joints this feather crosses.
 
@@ -3742,9 +3905,14 @@ def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None)
         free = _put_place(free_grip, name + "_free", offset, order)
         mid = _blend_places(name, hug, free, weight)
         influences[index] = _skin_joint(name, mid, joint, order)
+    influences, weight_positions = _fill_twist_gaps(
+        influences, positions, joint, order, "plumeStation_%d_%d" % (row, col)
+    )
     name = "plume_feather_%d_%d_rig" % (row, col)
     dup = _duplicate_mesh(feather, group, name)
-    joints, rows = _skin_weight_rows(_world_points(dup), influences, positions)
+    joints, rows = _skin_weight_rows(
+        _world_points(dup), influences, weight_positions
+    )
     if not joints:
         cmds.delete(dup)
         cmds.warning("No joints for %s." % feather.split("|")[-1])
@@ -3861,10 +4029,13 @@ def _flat(matrix):
 def _align_neck_to_head(head, controls):
     """Turn each FK control by a share of the head's own rotation.
 
+    Shares step evenly from 0 at the base to 1 at the tip, so the feather
+    rows, which hang from the joints above the base, twist by even steps.
     The tip takes the whole rotation, so it pitches and twists with the
-    head. The share is a multiply on the head's rotate channels, then a
-    matrix, so the twist does not flip the way an orient blend does. The
-    next segment is parented beside the control, not under it.
+    head. The share is a multiply on the head's rotate channels, taken in
+    the neck's own frame (ry twists, rx and rz bend), then a matrix, so the
+    twist does not flip the way an orient blend does. The next segment is
+    parented beside the control, not under it.
     """
     if not controls:
         cmds.warning("No neck FK controls. Neck orientation was left alone.")
@@ -3876,11 +4047,23 @@ def _align_neck_to_head(head, controls):
     for index in range(count - 1, 0, -1):
         cmds.parent(npos[index], npos[index - 1])
     group = cmds.createNode("transform", name="neckOri_grp", parent=host)
+    # Each share turns in a frame whose Y is that segment's own bone, so
+    # the head's ry is a pure twist of every segment. In the host's own
+    # axes it swings a leaning neck, and by a full turn the segments are
+    # tilted different ways. rx and rz still pitch and roll, about X and Z.
+    necks = _neck_division_joints()
+    positions = [_world_translation(joint) for joint in necks]
     for index, name in enumerate(names):
         ctl = cmds.ls(name, long=True)[0]
-        share = (index + 1) / float(count)
+        share = index / float(max(count - 1, 1))
+        frame = cmds.createNode(
+            "transform", name="neckOriFrame%d" % index, parent=group
+        )
+        if len(positions) >= 2:
+            bone = _neck_bone(positions, min(index, len(positions) - 1))
+            cmds.xform(frame, objectSpace=True, matrix=_bone_frame(host, bone))
         driver = cmds.createNode(
-            "transform", name="neckOriDriver%d" % index, parent=group
+            "transform", name="neckOriDriver%d" % index, parent=frame
         )
         cmds.connectAttr(head + ".rotateOrder", driver + ".rotateOrder")
         for channel in "xyz":
@@ -3890,6 +4073,45 @@ def _align_neck_to_head(head, controls):
             cmds.connectAttr(mult + ".output", driver + ".r" + channel)
         _drive_neck_orientation(ctl, driver)
     cmds.setAttr(group + ".visibility", 0)
+
+
+def _neck_bone(positions, index):
+    """Direction from neck joint index to the next. The tip uses the last segment."""
+    if index + 1 < len(positions):
+        return _norm(_sub(positions[index + 1], positions[index]))
+    return _norm(_sub(positions[index], positions[index - 1]))
+
+
+def _frame_axes(y):
+    """Right-handed (x, y, z) with Y given and X as near the host's X as it can stay."""
+    ref = (1.0, 0.0, 0.0) if abs(y[0]) < 0.9 else (0.0, 0.0, 1.0)
+    x = _norm(_sub(ref, _mul(y, _dot(ref, y))))
+    return x, y, _cross(x, y)
+
+
+def _bone_frame(host, bone):
+    """Matrix in host's space with Y along the world direction bone."""
+    inverse = _rotation_matrix(host).inverse()
+    y = _norm(tuple(sum(bone[i] * inverse[i * 4 + j] for i in range(3)) for j in range(3)))
+    x, y, z = _frame_axes(y)
+    return [
+        x[0], x[1], x[2], 0.0,
+        y[0], y[1], y[2], 0.0,
+        z[0], z[1], z[2], 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+
+
+def _check_frame_axes():
+    for y in (_norm((0.0, 0.92, 0.39)), _norm((0.3, 0.5, 0.8)), (1.0, 0.0, 0.0)):
+        x, y2, z = _frame_axes(y)
+        assert y2 == y
+        assert abs(_dot(x, y)) < 1e-9 and abs(_dot(z, y)) < 1e-9 and abs(_dot(x, z)) < 1e-9
+        assert abs(_length(x) - 1.0) < 1e-9 and abs(_length(z) - 1.0) < 1e-9
+    assert abs(_frame_axes(_norm((0.0, 0.92, 0.39)))[0][0] - 1.0) < 1e-9
+
+
+_check_frame_axes()
 
 
 def _drive_neck_orientation(ctl, driver):
