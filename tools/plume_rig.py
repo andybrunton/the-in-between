@@ -1,19 +1,22 @@
 """Author a cylinder, flare and bend it, drape feathers, then drop guides on them.
 
 Create Guide builds a spine_S_shape_01 neck with one more joint than the
-feather rows, then one control_01 leaf joint per feather. No feather
-control. The neck curve follows the cylinder bend. The neck hangs under a
-chest control at its base. A root control is at the origin. The head sits
-on the tip, parented to the chest, not to the neck. After the build, the
-head moves the neck tip. Each neck FK control blends from its rest pose
-toward the head, so a forward pitch on the head is the same forward pitch
-at the tip. The neck IK and FK controls are hidden and locked, and the
-head joint hangs off the tip. Each feather joint is parented to the nearest
-neck joint. After the rig is built, a post step on the head control skins
-the feathers as one mesh. The neck's oval is applied after the twist, in a
-frame that bends but does not spin, so a turn in Y keeps a wider-than-deep
-neck outside itself. add_oval() does this to a rig that was pinned before.
-Extra joints under the feather joint bend the feather with the cylinder. Host channels live on the head control. Volume starts
+feather rows, then one control_01 leaf joint per feather so the build can
+place it. No feather control. The neck curve follows the cylinder bend.
+The neck hangs under a chest control at its base. A root control is at the
+origin. The head sits on the tip, parented to the chest, not to the neck.
+After the build, the head moves the neck tip. Each neck FK control blends
+from its rest pose toward the head, so a forward pitch on the head is the
+same forward pitch at the tip. The neck IK and FK controls are hidden and
+locked, and the head joint hangs off the tip. Each feather hangs off the
+nearest neck joint. Pinning swaps the leaf joint for a transform there,
+and the station joints are parented to that transform. After the rig is
+built, a post step on the head control skins the feathers as one mesh. The
+neck's oval is applied after the twist, in a frame that bends but does not
+spin, so a turn in Y keeps a wider-than-deep neck outside itself.
+add_oval() does this to a rig that was pinned before. Extra joints under
+that transform bend the feather with the cylinder. Host channels live on
+the head control. Volume starts
 at 0. Splay is degrees, 0 to 90, per row, grouped as every Splay, then
 every Splay Falloff, then every Splay Rotate. Falloff 0 splays
 one feather, falloff 1 splays the row, and rotate moves that center.
@@ -406,15 +409,20 @@ def _feather_slot(feather):
         return None
 
 
-def _feather_joint_slot(joint):
-    """Row and column from a control_01 joint, feather_ROW_COL_*_0_jnt.
+def _feather_joint_slot(node):
+    """Row and column from a leaf joint or the transform that replaced it.
 
-    None if the name is not that joint. The 0 is the component's joint index.
+    feather_ROW_COL_SIDE_0_jnt, or feather_ROW_COL_SIDE_anchor. The 0 is the
+    component's joint index. None if the name is neither.
     """
-    parts = joint.split("|")[-1].split("_")
-    if len(parts) < 6 or parts[0] != "feather" or parts[-1] != "jnt":
+    parts = node.split("|")[-1].split("_")
+    if len(parts) < 5 or parts[0] != "feather":
         return None
-    if parts[-2] != "0":
+    if parts[-1] == "anchor":
+        pass
+    elif len(parts) >= 6 and parts[-1] == "jnt" and parts[-2] == "0":
+        pass
+    else:
         return None
     try:
         return int(parts[1]), int(parts[2])
@@ -422,12 +430,23 @@ def _feather_joint_slot(joint):
         return None
 
 
-def _splay_name(joint):
+def _feather_suffix_name(node, suffix):
+    """feather_ROW_COL_SIDE_0_jnt -> feather_ROW_COL_SIDE_<suffix>."""
+    short = node.split("|")[-1]
+    for tail in ("_0_jnt", "_anchor"):
+        if short.endswith(tail):
+            return short[: -len(tail)] + "_" + suffix
+    return None
+
+
+def _splay_name(node):
     """feather_ROW_COL_C0_0_jnt -> feather_ROW_COL_C0_splay. None otherwise."""
-    short = joint.split("|")[-1]
-    if not short.endswith("_0_jnt"):
-        return None
-    return short[: -len("_0_jnt")] + "_splay"
+    return _feather_suffix_name(node, "splay")
+
+
+def _anchor_name(node):
+    """feather_ROW_COL_C0_0_jnt -> feather_ROW_COL_C0_anchor. None otherwise."""
+    return _feather_suffix_name(node, "anchor")
 
 
 # A nearer feather than this wins. Anything closer keeps the earlier angle,
@@ -678,12 +697,18 @@ def _check_layout():
     assert _feather_slot("not_a_feather") is None
     assert _feather_joint_slot("feather_2_5_C0_0_jnt") == (2, 5)
     assert _feather_joint_slot("|grp|feather_0_10_C0_0_jnt") == (0, 10)
+    assert _feather_joint_slot("feather_2_5_C0_anchor") == (2, 5)
+    assert _feather_joint_slot("|grp|feather_0_10_C0_anchor") == (0, 10)
     assert _feather_joint_slot("feather_2_5_C0_ctl") is None
     assert _feather_joint_slot("leaf_feather_2_5_C0_0_jnt") is None
     assert _feather_joint_slot("feather_2_5_C0_1_jnt") is None
     assert _splay_name("feather_2_5_C0_0_jnt") == "feather_2_5_C0_splay"
     assert _splay_name("|grp|feather_0_10_C0_0_jnt") == "feather_0_10_C0_splay"
+    assert _splay_name("feather_2_5_C0_anchor") == "feather_2_5_C0_splay"
+    assert _anchor_name("feather_2_5_C0_0_jnt") == "feather_2_5_C0_anchor"
+    assert _anchor_name("feather_2_5_C0_anchor") == "feather_2_5_C0_anchor"
     assert _splay_name("feather_2_5_C0_ctl") is None
+    assert _anchor_name("feather_2_5_C0_ctl") is None
     assert abs(petal_half(0.28) - 1.0) < 1e-9
     assert petal_half(0.0) < petal_half(0.28)
     assert petal_half(1.0) == 0.0
@@ -2220,7 +2245,8 @@ def create_guide():
     chain follows the curve instead of the straight root-to-tip line.
     Each feather is a leaf joint on that feather's root. Joint is on,
     the control is not. It aims down the feather and is parented to the
-    neck joint closest to its row. World-orientation
+    neck joint closest to its row. Pinning replaces that joint with a
+    transform. World-orientation
     align is off. The neck is parented to chest. A root control is created
     at the origin, and a chest control at the neck base, when those are
     missing. Both include a joint. Chest is parented to root. A chest
@@ -2409,12 +2435,12 @@ def add_splay():
     then every Splay Falloff, then every Splay Rotate, then Wind. Volume's
     default is 0. Wind breathes that pose. A fully open feather still wobbles
     a little past 90. Wind Offset scrubs the noise.
-    Safe to run again. Skins one feather mesh, with a station joint on
-    every neck joint each feather crosses.
+    Safe to run again. Drops each feather leaf joint, then skins one feather
+    mesh, with a station joint on every neck joint each feather crosses.
     """
-    feathers = _feather_joints()
+    feathers = _feather_anchors()
     if not feathers:
-        cmds.warning("Build the rig first. No feather joints were found.")
+        cmds.warning("Build the rig first. No feathers were found.")
         return None
     host = _splay_host(None)
     _zero_volume(host)
@@ -2441,17 +2467,61 @@ def add_splay():
     return host
 
 
-def _feather_joints():
-    """(row, column, node) for each built feather joint."""
-    found = []
-    seen = set()
-    for node in cmds.ls("feather_*_jnt", type="joint", long=True) or []:
+def _swap_feather_joint(joint):
+    """Replace the leaf joint with a transform that keeps its world pose.
+
+    The transform stays under the same neck joint. A later pin parents the
+    station joints to it, so they inherit scale the way the leaf joint did.
+    Safe when the transform is already there: the joint's pose wins, then
+    the joint is deleted.
+    """
+    name = _anchor_name(joint)
+    if not name or not cmds.objExists(joint):
+        return joint
+    parent = cmds.listRelatives(joint, parent=True, fullPath=True) or []
+    if not parent:
+        return joint
+    matrix = cmds.xform(joint, query=True, matrix=True, worldSpace=True)
+    order = cmds.getAttr(joint + ".rotateOrder")
+    found = [
+        node
+        for node in (cmds.ls(name, long=True) or [])
+        if cmds.nodeType(node) != "joint"
+    ]
+    if found:
+        anchor = found[0]
+        current = cmds.listRelatives(anchor, parent=True, fullPath=True) or []
+        same = cmds.ls(parent[0], long=True)[0]
+        if not current or cmds.ls(current[0], long=True)[0] != same:
+            anchor = cmds.parent(anchor, parent[0])[0]
+    else:
+        anchor = cmds.createNode("transform", name=name, parent=parent[0])
+    cmds.setAttr(anchor + ".rotateOrder", order)
+    cmds.xform(anchor, worldSpace=True, matrix=matrix)
+    for kid in cmds.listRelatives(joint, children=True, type="transform", fullPath=True) or []:
+        if cmds.objExists(kid):
+            cmds.parent(kid, anchor)
+    cmds.lockNode(joint, lock=False)
+    cmds.delete(joint)
+    return cmds.ls(anchor, long=True)[0]
+
+
+def _feather_anchors():
+    """(row, column, anchor) for each feather. A leftover leaf joint is swapped."""
+    found = {}
+    for node in cmds.ls("feather_*_0_jnt", type="joint", long=True) or []:
         slot = _feather_joint_slot(node)
-        if not slot or slot in seen:
+        if not slot:
             continue
-        seen.add(slot)
-        found.append((slot[0], slot[1], node))
-    return found
+        found[slot] = _swap_feather_joint(node)
+    for node in cmds.ls("feather_*_anchor", long=True) or []:
+        if cmds.nodeType(node) == "joint":
+            continue
+        slot = _feather_joint_slot(node)
+        if not slot or slot in found:
+            continue
+        found[slot] = cmds.ls(node, long=True)[0]
+    return [(slot[0], slot[1], found[slot]) for slot in sorted(found)]
 
 
 def _head_guide_name(head):
@@ -2709,7 +2779,7 @@ def _zero_volume(host):
 
 
 def _drive_splay(joint):
-    """Hinge under the feather joint. The row expression writes its rotateZ."""
+    """Hinge under the feather anchor. The row expression writes its rotateZ."""
     name = _splay_name(joint)
     if not name:
         return None
@@ -2784,13 +2854,17 @@ def _row_twist(row, offsets):
         return None
     long_necks = [cmds.ls(neck, long=True)[0] for neck in necks]
     for col, _node in offsets:
-        for joint in cmds.ls("feather_%d_%d_*_jnt" % (row, col), long=True) or []:
-            if _feather_joint_slot(joint) != (row, col):
-                continue
-            parent = cmds.listRelatives(joint, parent=True, fullPath=True) or []
-            if parent and cmds.ls(parent[0], long=True)[0] in long_necks:
-                index = long_necks.index(cmds.ls(parent[0], long=True)[0])
-                return head.split("|")[-1] + ".rotateY", index / float(len(necks) - 1)
+        for pattern in (
+            "feather_%d_%d_*_anchor" % (row, col),
+            "feather_%d_%d_*_0_jnt" % (row, col),
+        ):
+            for node in cmds.ls(pattern, long=True) or []:
+                if _feather_joint_slot(node) != (row, col):
+                    continue
+                parent = cmds.listRelatives(node, parent=True, fullPath=True) or []
+                if parent and cmds.ls(parent[0], long=True)[0] in long_necks:
+                    index = long_necks.index(cmds.ls(parent[0], long=True)[0])
+                    return head.split("|")[-1] + ".rotateY", index / float(len(necks) - 1)
     return None
 
 
@@ -2808,7 +2882,7 @@ def _splay_plug(joint):
 def _pin_feathers(host=None):
     """Skin the feathers as one mesh. Safe to run again.
 
-    Each feather is weighted to station joints under its feather joint.
+    Each feather is weighted to station joints under its feather anchor.
     Those joints are labeled, the meshes are combined in that same vertex
     order, and the weights are written onto the one mesh. It is parented
     under plume_rig_drivers. A driver beside the skeleton follows the neck,
@@ -2820,13 +2894,11 @@ def _pin_feathers(host=None):
         cmds.warning("No neck joints to skin. Feathers were not bound.")
         return
     joints = {}
-    for node in cmds.ls("feather_*_jnt", type="joint", long=True) or []:
-        slot = _feather_joint_slot(node)
-        if slot and slot not in joints:
-            joints[slot] = node
+    for row, col, node in _feather_anchors():
+        joints[(row, col)] = node
     feathers = _by_role("feather")
     if not joints or not feathers:
-        cmds.warning("No feather joints found. Feathers were not bound.")
+        cmds.warning("No feathers found. Feathers were not bound.")
         return
     positions = [_world_translation(joint) for joint in necks]
     saved = _zero_splay(host)
@@ -2838,7 +2910,7 @@ def _pin_feathers(host=None):
             slot = _feather_slot(feather)
             joint = joints.get(slot) if slot else None
             if not joint:
-                cmds.warning("No joint for %s." % feather.split("|")[-1])
+                cmds.warning("No feather anchor for %s." % feather.split("|")[-1])
                 continue
             bound = _bind_feather(
                 feather,
@@ -4008,6 +4080,63 @@ def _label_joint(joint):
     cmds.setAttr(joint + ".otherType", short, type="string")
 
 
+def _world_matrices_match(a, b, tol=1e-4):
+    left = cmds.xform(a, query=True, matrix=True, worldSpace=True)
+    right = cmds.xform(b, query=True, matrix=True, worldSpace=True)
+    return all(abs(x - y) < tol for x, y in zip(left, right))
+
+
+def _check_feather_anchor():
+    """Swapping the leaf keeps its pose, and a station under the anchor matches.
+
+    The reference station is parented to a copy of the leaf joint. Neck scale
+    is non-uniform, which is where a transform parent would drift. Batch only,
+    so opening the tool does not touch the scene.
+    """
+    if not cmds.about(batch=True):
+        return
+    if not cmds.pluginInfo("mgear_solvers", query=True, loaded=True):
+        cmds.loadPlugin("mgear_solvers")
+    neck = cmds.createNode("joint", name="plumeAnchorCheck_neck")
+    try:
+        cmds.setAttr(neck + ".translate", 0.2, 3.0, -0.4, type="double3")
+        cmds.setAttr(neck + ".rotate", 10, 20, 30, type="double3")
+        leaf = cmds.createNode("joint", name="feather_3_4_ZZ_0_jnt", parent=neck)
+        kept = cmds.createNode("joint", name="plumeAnchorCheck_leaf", parent=neck)
+        for node in (leaf, kept):
+            cmds.setAttr(node + ".segmentScaleCompensate", 0)
+            cmds.setAttr(node + ".translate", 1.0, 0.2, -0.3, type="double3")
+            cmds.setAttr(node + ".jointOrient", 15, -25, 40, type="double3")
+            cmds.setAttr(node + ".rotateOrder", 3)
+        hinge = cmds.createNode("transform", name="feather_3_4_ZZ_splay", parent=leaf)
+        anchor = _swap_feather_joint(leaf)
+        assert cmds.nodeType(anchor) != "joint"
+        assert not cmds.objExists("feather_3_4_ZZ_0_jnt")
+        assert _world_matrices_match(anchor, kept)
+        assert cmds.listRelatives(hinge, parent=True, fullPath=True)[0] == cmds.ls(anchor, long=True)[0]
+        driver = cmds.createNode("transform", name="plumeAnchorCheck_drv")
+        cmds.setAttr(driver + ".translateX", 1.5)
+        cmds.setAttr(driver + ".rotateY", 25)
+        via_joint = _skin_joint("plumeAnchorCheckOld", driver, kept, 0)
+        via_anchor = _skin_joint("plumeAnchorCheckNew", driver, anchor, 0)
+        cmds.setAttr(neck + ".rotateX", 50)
+        cmds.setAttr(neck + ".scale", 1.4, 0.6, 1.2, type="double3")
+        cmds.setAttr(driver + ".rotateZ", 40)
+        cmds.setAttr(driver + ".translateY", -1.0)
+        assert _world_matrices_match(via_joint, via_anchor)
+        assert _feather_anchors() == [(3, 4, cmds.ls(anchor, long=True)[0])]
+        assert not cmds.objExists("feather_3_4_ZZ_0_jnt")
+    finally:
+        if cmds.objExists(neck):
+            cmds.delete(neck)
+        for node in cmds.ls("plumeAnchorCheck*") or []:
+            if cmds.objExists(node):
+                cmds.delete(node)
+
+
+_check_feather_anchor()
+
+
 def _skin_mesh(mesh, joints, rows):
     """One linear skin with these weights. rows already match the vertex order."""
     if not joints:
@@ -4182,8 +4311,9 @@ def _bind_feather(feather, joint, necks, positions, group, ctl=None, twist=None)
     Returns the duplicate mesh and its weight rows. The caller combines
     those meshes and writes one skin.
 
-    The feather joint is not a skin influence. Feeding its rotate into the
-    stations turns splay into a twist.
+    The feather anchor is not a joint and not a skin influence. Stations are
+    parented to it so a scaled neck reaches them the way the leaf joint did.
+    Feeding the anchor's rotate into the stations turns splay into a twist.
 
     With twist, a shut feather follows each neck joint's bend but takes the
     twist of the joint the feather hangs from, so it turns as one piece
