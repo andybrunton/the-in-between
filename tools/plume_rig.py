@@ -10,13 +10,16 @@ toward the head, so a forward pitch on the head is the same forward pitch
 at the tip. The neck IK and FK controls are hidden and locked, and the
 head joint hangs off the tip. Each feather joint is parented to the nearest
 neck joint. After the rig is built, a post step on the head control skins
-the feathers as one mesh. Extra joints under the feather joint bend the
-feather with the cylinder. Host channels live on the head control. Volume starts
+the feathers as one mesh. The neck's oval is applied after the twist, in a
+frame that bends but does not spin, so a turn in Y keeps a wider-than-deep
+neck outside itself. add_oval() does this to a rig that was pinned before.
+Extra joints under the feather joint bend the feather with the cylinder. Host channels live on the head control. Volume starts
 at 0. Splay is degrees, 0 to 90, per row, grouped as every Splay, then
 every Splay Falloff, then every Splay Rotate. Falloff 0 splays
 one feather, falloff 1 splays the row, and rotate moves that center.
-Wind breathes that pose. Splay 0 stays shut. Wind is the amount, and
-Wind Offset scrubs a noise field the user keys.
+Wind breathes that pose. Splay 0 stays shut. A fully open feather still
+wobbles a little past 90. Wind is the amount, and Wind Offset scrubs a
+noise field the user keys.
 
 Run in Maya::
 
@@ -31,6 +34,7 @@ import os
 import tempfile
 import time
 
+import numpy as np
 import maya.cmds as cmds
 import maya.api.OpenMaya as om
 
@@ -62,6 +66,9 @@ ROW_LIFT = 0.065
 # Neck stretch still lengthens a feather, evenly. 0 leaves each station on its
 # own joint's twist, and the vane shears between them.
 TWIST_RIGIDITY = 1.0
+# An oval this close to round is left alone. The row clearance is about 2% of
+# the radius, so a smaller mismatch cannot close it.
+OVAL_ROUND = 0.02
 # Joints inserted across each gap between stations. Linear skinning shrinks a
 # feather where two influences twist far apart; more steps keep each blend small.
 # 1 inserts nothing.
@@ -488,19 +495,32 @@ def wind_sample(angle, row):
     return (float(angle) / 180.0, float(row))
 
 
+# Full wind at a noise peak uses this much of the gap to the nearer stop.
+_WIND_GAIN = 0.35
+# Open-side room never shrinks below this, so a pose on 90 still swings.
+# The peak passes 90 by this times _WIND_GAIN.
+_WIND_OPEN = 30.0
+
+
 def wind_hinge(pose, wave, wind):
-    """Posed splay plus the gust. Wind 0 keeps the pose. Pose 0 stays shut."""
+    """Posed splay plus a gust. Wind 0 keeps the pose. Pose 0 stays shut.
+
+    The swing is _WIND_GAIN of the gap to the nearer stop. The open side
+    keeps at least _WIND_OPEN degrees, so a fully splayed feather still
+    wobbles and the peak passes 90.
+    """
     wind = float(wind)
     if wind < 0.0:
         wind = 0.0
     elif wind > 1.0:
         wind = 1.0
-    hinge = float(pose) * (1.0 + wind * float(wave))
-    if hinge < 0.0:
-        return 0.0
-    if hinge > 90.0:
-        return 90.0
-    return hinge
+    pose = float(pose)
+    if pose < 0.0:
+        pose = 0.0
+    elif pose > 90.0:
+        pose = 90.0
+    room = min(pose, max(90.0 - pose, _WIND_OPEN))
+    return pose + room * _WIND_GAIN * wind * float(wave)
 
 
 def _splay_expression(host, row, feathers, twist=None):
@@ -527,6 +547,8 @@ def _splay_expression(host, row, feathers, twist=None):
         "float $best = 0;",
         "float $which = 0;",
         "float $m = 1;",
+        "float $pose = 0;",
+        "float $room = 0;",
         "float $wave = 0;",
         "float $hinge = 0;",
     ]
@@ -588,11 +610,15 @@ def _splay_expression(host, row, feathers, twist=None):
     for index, (angle, node) in enumerate(feathers):
         across, up = wind_sample(angle, row)
         lines.append("$wave = noise(<<$off, %.8f, %.8f>>);" % (across, up))
+        lines.append("$pose = $peak * $w%d;" % index)
+        lines.append("if ($pose < 0) $pose = 0;")
+        lines.append("if ($pose > 90) $pose = 90;")
         lines.append(
-            "$hinge = $peak * $w%d * (1 + $wind * $wave);" % index
+            "$room = min($pose, max(90 - $pose, %.9g));" % _WIND_OPEN
         )
-        lines.append("if ($hinge < 0) $hinge = 0;")
-        lines.append("if ($hinge > 90) $hinge = 90;")
+        lines.append(
+            "$hinge = $pose + $room * %.9g * $wind * $wave;" % _WIND_GAIN
+        )
         lines.append("%s.rotateZ = $hinge;" % node)
     return "\n".join(lines)
 
@@ -746,16 +772,33 @@ def _check_layout():
     assert wind_sample(180.0, 2) == (1.0, 2.0)
     assert "90.0 * $fall / (1.0 - $fall)" in text
     assert "sind(45.00000000 - $rot)" in text
-    assert "$hinge = $peak * $w1 * (1 + $wind * $wave);" in text
+    assert "$pose = $peak * $w1;" in text
+    assert (
+        "$room = min($pose, max(90 - $pose, %.9g));" % _WIND_OPEN
+    ) in text
+    assert (
+        "$hinge = $pose + $room * %.9g * $wind * $wave;" % _WIND_GAIN
+    ) in text
+    assert "if ($hinge < 0)" not in text
     assert "feather_0_1_C0_splay.rotateZ = $hinge;" in text
     assert wind_hinge(30.0, 1.0, 0.0) == 30.0
     assert wind_hinge(30.0, -1.0, 0.0) == 30.0
     assert wind_hinge(0.0, 1.0, 1.0) == 0.0
-    assert wind_hinge(30.0, -1.0, 1.0) == 0.0
-    assert wind_hinge(30.0, 1.0, 1.0) == 60.0
-    assert wind_hinge(60.0, 1.0, 1.0) == 90.0
-    assert wind_hinge(80.0, -0.5, 1.0) == 40.0
-    assert wind_hinge(30.0, 1.0, 2.0) == 60.0
+    # 30° has 30° of room. Full wind uses 0.35 of it.
+    assert abs(wind_hinge(30.0, -1.0, 1.0) - 19.5) < 1e-9
+    assert abs(wind_hinge(30.0, 1.0, 1.0) - 40.5) < 1e-9
+    # 60° has 30° of room toward the open stop, so the same swing.
+    assert abs(wind_hinge(60.0, 1.0, 1.0) - 70.5) < 1e-9
+    assert abs(wind_hinge(60.0, -1.0, 1.0) - 49.5) < 1e-9
+    # From here the open side keeps 30° of room, so the swing stays put
+    # and a pose on 90 peaks about 10° past the stop.
+    assert abs(wind_hinge(80.0, -0.5, 1.0) - 74.75) < 1e-9
+    assert abs(wind_hinge(90.0, 1.0, 1.0) - 100.5) < 1e-9
+    assert abs(wind_hinge(90.0, -1.0, 1.0) - 79.5) < 1e-9
+    assert abs(wind_hinge(30.0, 1.0, 2.0) - 40.5) < 1e-9
+    mid_shut = wind_hinge(45.0, -1.0, 1.0)
+    mid_open = wind_hinge(45.0, 1.0, 1.0)
+    assert 0.0 < mid_shut < 45.0 < mid_open < 90.0
 
 
 def _sub(a, b):
@@ -2364,7 +2407,8 @@ def add_splay():
     row: 0 is the one feather under Splay Rotate, 1 is the whole row. Zero
     splay is the tight mesh. Channels live on the head control: every Splay,
     then every Splay Falloff, then every Splay Rotate, then Wind. Volume's
-    default is 0. Wind breathes that pose. Wind Offset scrubs the noise.
+    default is 0. Wind breathes that pose. A fully open feather still wobbles
+    a little past 90. Wind Offset scrubs the noise.
     Safe to run again. Skins one feather mesh, with a station joint on
     every neck joint each feather crosses.
     """
@@ -2786,7 +2830,7 @@ def _pin_feathers(host=None):
         return
     positions = [_world_translation(joint) for joint in necks]
     saved = _zero_splay(host)
-    twist = {"reads": {}, "fixes": {}, "count": len(necks)}
+    twist = {"reads": {}, "fixes": {}, "count": len(necks), "ovals": {}}
     try:
         drivers = _driver_group()
         pieces = []
@@ -2807,14 +2851,17 @@ def _pin_feathers(host=None):
             if bound:
                 pieces.append((slot, bound))
         pieces.sort(key=lambda item: item[0])
+        _build_ovals(twist, necks, positions)
+        skin = None
         if pieces:
-            _skin_combined(
+            skin = _skin_combined(
                 [item[1][0] for item in pieces],
                 [item[1][1:] for item in pieces],
                 drivers,
             )
         else:
             cmds.warning("No feathers were bound.")
+        _attach_oval(skin, twist)
         _twist_expression(twist)
         author = author_root()
         if author:
@@ -2828,9 +2875,15 @@ def _clear_rig_geo():
     for name in ("plume_rig_geo", "plume_cylinder_rig", "plume_feathers_rig", "plume_rig_drivers"):
         if cmds.objExists(name):
             cmds.delete(name)
-    old = (cmds.ls("plumeStation_*") or []) + (cmds.ls("plumeTwist*") or [])
+    old = (
+        (cmds.ls("plumeStation_*") or [])
+        + (cmds.ls("plumeTwist*") or [])
+        + (cmds.ls("plumeOval*") or [])
+    )
     if old:
         cmds.delete(old)
+    if cmds.objExists("plumeTwistExpr"):
+        cmds.delete("plumeTwistExpr")
     for feather in _by_role("feather"):
         cons = cmds.listRelatives(
             feather, children=True, type="parentConstraint", fullPath=True
@@ -3311,9 +3364,397 @@ def _twist_fix(twist, necks, positions, row_index, index):
     return twist["fixes"][key]
 
 
+def _station_span(name):
+    """(start neck, end neck, fraction) for a station or tween joint. None otherwise.
+
+    fraction is 0 on the start joint. A tween sits between that joint and the next.
+    """
+    parts = name.split("|")[-1].split("_")
+    if len(parts) < 5 or parts[0] != "plumeStation" or parts[-1] != "jnt":
+        return None
+    token = parts[3]
+    if token.isdigit():
+        index = int(token)
+        return index, index, 0.0
+    if token.startswith("t") and token[1:].isdigit() and parts[4].isdigit():
+        index = int(token[1:])
+        fraction = int(parts[4]) / float(TWIST_STEPS)
+        return index, index + 1, fraction
+    return None
+
+
+def _fit_section(points, origin, normal):
+    """Ellipse through these points, in the plane across normal.
+
+    Returns (axis, rx, rz): the first principal axis and the two radii.
+    Every point sits on A u^2 + B v^2 + C u v = 1, so that is solved by least
+    squares. Feathers are spread by angle, not along the curve, so a plain
+    second moment would read about half the oval. None when there are too
+    few points, or they do not make an ellipse.
+    """
+    if len(points) < 6 or _length(normal) < 1e-8:
+        return None
+    x, _y, z = _frame_axes(_norm(normal))
+    rows = []
+    for point in points:
+        delta = _sub(point, origin)
+        u = _dot(delta, x)
+        v = _dot(delta, z)
+        rows.append((u * u, v * v, u * v))
+    a, b, c = np.linalg.lstsq(np.array(rows), np.ones(len(rows)), rcond=None)[0]
+    mean = 0.5 * (a + b)
+    spread = math.hypot(0.5 * (a - b), 0.5 * c)
+    big, small = mean + spread, mean - spread
+    if small < 1e-9:
+        return None
+    angle = 0.5 * math.atan2(c, a - b)
+    # The first eigenvector is the narrow axis. Its radius is the shorter.
+    narrow = _norm(_add(_mul(x, math.cos(angle)), _mul(z, math.sin(angle))))
+    wide = _cross(_norm(normal), narrow)
+    return wide, 1.0 / math.sqrt(small), 1.0 / math.sqrt(big)
+
+
+def _section_roots():
+    """One world point per feather, on the root center. Author feathers, else the rig mesh."""
+    roots = []
+    for feather in _by_role("feather"):
+        frame = _feather_frame(feather)
+        if frame:
+            roots.append(frame[0])
+    if len(roots) >= 6:
+        return roots
+    mesh = "plume_feathers_rig"
+    if not cmds.objExists(mesh):
+        return []
+    count = (ALONG_DIVS + 1) * (ACROSS_DIVS + 1) + 1
+    points = _world_points(mesh)
+    if len(points) % count:
+        return []
+    mid = ACROSS_DIVS // 2
+    return [points[i] for i in range(mid, len(points), count)]
+
+
+def _neck_sections(positions, roots):
+    """Per neck joint: (x axis, x radius, z radius), or None on a round or empty joint.
+
+    Roots land on the nearest joint. A joint with no roots keeps its neighbor's
+    oval, so the base joint, which has no row, still scales with the row above it.
+    """
+    buckets = [[] for _ in positions]
+    last = len(positions) - 1
+    for point in roots:
+        index = int(round(chain_parameter(point, positions) * last))
+        if index < 0:
+            index = 0
+        elif index > last:
+            index = last
+        buckets[index].append(point)
+    found = []
+    for index, origin in enumerate(positions):
+        found.append(_fit_section(buckets[index], origin, _neck_bone(positions, index)))
+    for index, section in enumerate(found):
+        if section is not None:
+            continue
+        donor = None
+        for step in range(1, len(found)):
+            for other in (index - step, index + step):
+                if 0 <= other < len(found) and found[other] is not None:
+                    donor = found[other]
+                    break
+            if donor is not None:
+                break
+        found[index] = donor
+    if not any(found):
+        return found
+    widest = 0.0
+    for section in found:
+        if section is None:
+            continue
+        _axis, rx, rz = section
+        widest = max(widest, abs(rx - rz) / max(rx, rz, 1e-8))
+    if widest < OVAL_ROUND:
+        return [None] * len(found)
+    return found
+
+
+def _check_oval():
+    """A quarter turn carries a wide-side point onto the narrow side, at its own radius."""
+    assert _station_span("plumeStation_5_15_4_jnt") == (4, 4, 0.0)
+    assert _station_span("|rig|plumeStation_5_15_t4_1_jnt") == (4, 5, 0.5)
+    assert _station_span("feather_0_0_C0_0_jnt") is None
+    circle = []
+    oval = []
+    for i in range(16):
+        angle = 2.0 * math.pi * i / 16.0
+        circle.append((math.cos(angle), 1.0, math.sin(angle)))
+        oval.append((4.0 * math.cos(angle), 1.0, 2.0 * math.sin(angle)))
+    straight = [(0.0, float(i), 0.0) for i in range(3)]
+    assert _neck_sections(straight, circle) == [None, None, None]
+    fitted = _fit_section(oval, (0.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+    assert fitted is not None and abs(fitted[1] / fitted[2] - 2.0) < 0.05
+    assert abs(fitted[0][0]) > 0.95
+
+    def moved(x, y, z):
+        transform = om.MTransformationMatrix()
+        transform.setTranslation(om.MVector(x, y, z), om.MSpace.kTransform)
+        return transform.asMatrix()
+
+    scale = om.MMatrix((2.0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1))
+    turn = om.MEulerRotation(0.0, math.radians(90.0), 0.0).asMatrix()
+    frame = moved(10.0, 0.0, 0.0)
+    rest = moved(12.0, 0.0, 0.0)
+    posed = rest * frame.inverse() * turn * frame
+    bound = rest * frame.inverse() * scale * frame
+    live = posed * frame.inverse() * scale * frame
+    point = om.MPoint(12.0, -1.0, 0.0) * bound.inverse() * live
+    assert abs(point.x - 10.0) < 1e-5 and abs(point.y + 1.0) < 1e-5
+    assert abs(abs(point.z) - 1.0) < 1e-5
+    home = om.MPoint(12.0, -1.0, 0.0) * bound.inverse() * bound
+    assert abs(home.x - 12.0) < 1e-5 and abs(home.y + 1.0) < 1e-5 and abs(home.z) < 1e-5
+    lifted = om.MPoint(12.2, 0.0, 0.0) * bound.inverse() * live
+    assert abs(lifted.x - 10.0) < 1e-4 and abs(abs(lifted.z) - 1.1) < 1e-4
+
+
+def _build_ovals(twist, necks, positions):
+    """One frame per neck joint: the bend, with the twist taken back off, plus the oval scale.
+
+    The skin matrix is the station, then this frame's inverse, then the scale,
+    then the frame. Twist lives in the station, so it happens on a circle and
+    the oval is the same squash for every row. A round neck builds nothing.
+    """
+    sections = _neck_sections(positions, _section_roots())
+    twist["ovals"] = {}
+    if not any(sections):
+        return {}
+    previous = None
+    for index, section in enumerate(sections):
+        if section is None:
+            continue
+        _twist_reader(twist, necks, positions, index)
+        if index not in twist["reads"]:
+            continue
+        axis, rx, rz = section
+        # A ratio, not a radius. The skin matrix squashes in between a motion
+        # that is not about the axis (a splay hinge), and a radius would
+        # scale that motion by the neck's own size.
+        mean = math.sqrt(rx * rz)
+        sx, sz = rx / mean, rz / mean
+        orient = twist["reads"][index][2]
+        matrix = cmds.xform(orient, query=True, matrix=True, worldSpace=True)
+        bone = _norm((matrix[4], matrix[5], matrix[6]))
+        x = _sub(axis, _mul(bone, _dot(axis, bone)))
+        if _length(x) < 1e-6:
+            continue
+        x = _norm(x)
+        # Axis signs are arbitrary, and a blend between two frames half a turn
+        # apart swings the squash a quarter turn. Keep every frame on the same side.
+        if previous is not None and _dot(x, previous) < 0.0:
+            x = _mul(x, -1.0)
+        previous = x
+        oval = cmds.createNode("transform", name="plumeOval_%d" % index, parent=orient)
+        cmds.xform(
+            oval,
+            worldSpace=True,
+            matrix=_matrix(x, bone, _cross(x, bone), (matrix[12], matrix[13], matrix[14])),
+        )
+        if not cmds.attributeQuery("phi", node=oval, exists=True):
+            cmds.addAttr(oval, longName="phi", attributeType="double")
+        cmds.setAttr(oval + ".phi", cmds.getAttr(oval + ".rotateY"))
+        twist["ovals"][index] = (
+            cmds.ls(oval, long=True)[0],
+            cmds.getAttr(oval + ".phi"),
+            sx,
+            sz,
+        )
+    return twist["ovals"]
+
+
+def _oval_plug(twist, start, end, fraction, cache):
+    """World-matrix plug of the untwisted frame, and the scale at this station."""
+    if end not in twist["ovals"] or abs(fraction) < 1e-6:
+        node, _phi, sx, sz = twist["ovals"][start]
+        return node + ".worldMatrix[0]", sx, sz
+    key = (start, end, round(fraction, 5))
+    if key not in cache:
+        first = twist["ovals"][start][0]
+        second = twist["ovals"][end][0]
+        blend = cmds.createNode("blendMatrix", name="plumeOvalBlend_%d_%d" % key[:2])
+        cmds.connectAttr(first + ".worldMatrix[0]", blend + ".inputMatrix")
+        cmds.connectAttr(second + ".worldMatrix[0]", blend + ".target[0].targetMatrix")
+        cmds.setAttr(blend + ".target[0].weight", fraction)
+        cache[key] = blend + ".outputMatrix"
+    sx0, sz0 = twist["ovals"][start][2], twist["ovals"][start][3]
+    sx1, sz1 = twist["ovals"][end][2], twist["ovals"][end][3]
+    return (
+        cache[key],
+        sx0 + (sx1 - sx0) * fraction,
+        sz0 + (sz1 - sz0) * fraction,
+    )
+
+
+def _matrix_pairs(skin):
+    """(skin matrix plug, influence plug) for each connected influence."""
+    cons = cmds.listConnections(
+        skin + ".matrix", plugs=True, connections=True, source=True, destination=False
+    ) or []
+    pairs = list(zip(cons[0::2], cons[1::2]))
+    if pairs and ".matrix[" not in pairs[0][0]:
+        pairs = [(second, first) for first, second in pairs]
+    return pairs
+
+
+def _attach_oval(skin, twist):
+    """Feed each station's skin matrix through the oval sandwich. Rest pose stays put."""
+    if not skin or not cmds.objExists(skin) or not twist.get("ovals"):
+        return
+    frames = {}
+    inverses = {}
+    for dest, src in _matrix_pairs(skin):
+        joint = src.split(".")[0]
+        span = _station_span(joint)
+        if span is None or span[0] not in twist["ovals"]:
+            continue
+        start, end, fraction = span
+        plug, sx, sz = _oval_plug(twist, start, end, fraction, frames)
+        if plug not in inverses:
+            inverse = cmds.createNode("inverseMatrix", name="plumeOvalInv_%d" % len(inverses))
+            cmds.connectAttr(plug, inverse + ".inputMatrix")
+            inverses[plug] = inverse + ".outputMatrix"
+        mult = cmds.createNode(
+            "multMatrix", name="plumeOvalMul_" + joint.split("|")[-1]
+        )
+        cmds.connectAttr(src, mult + ".matrixIn[0]", force=True)
+        cmds.connectAttr(inverses[plug], mult + ".matrixIn[1]", force=True)
+        cmds.setAttr(
+            mult + ".matrixIn[2]",
+            sx, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, sz, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+            type="matrix",
+        )
+        cmds.connectAttr(plug, mult + ".matrixIn[3]", force=True)
+        cmds.connectAttr(mult + ".matrixSum", dest, force=True)
+        index = dest.split("[")[-1].rstrip("]")
+        bound = om.MMatrix(cmds.getAttr(mult + ".matrixSum")).inverse()
+        cmds.setAttr(
+            skin + ".bindPreMatrix[" + index + "]", *_flat(bound), type="matrix"
+        )
+
+
+def _drop_ovals(skin):
+    """Put the skin back on the joints, then delete the oval nodes.
+
+    The twist expression is edited, not deleted: deleting it takes the twist
+    readers with it, since nothing else uses them.
+    """
+    if cmds.objExists("plumeTwistExpr"):
+        text = cmds.expression("plumeTwistExpr", query=True, string=True) or ""
+        kept = [line for line in text.splitlines() if "plumeOval_" not in line]
+        cmds.expression("plumeTwistExpr", edit=True, string="\n".join(kept))
+    if skin and cmds.objExists(skin):
+        for dest, src in _matrix_pairs(skin):
+            if "plumeOvalMul" not in src:
+                continue
+            joint = cmds.listConnections(
+                src.split(".")[0] + ".matrixIn[0]", plugs=True, source=True
+            ) or []
+            if not joint:
+                continue
+            cmds.connectAttr(joint[0], dest, force=True)
+            index = dest.split("[")[-1].rstrip("]")
+            bound = om.MMatrix(cmds.getAttr(joint[0])).inverse()
+            cmds.setAttr(
+                skin + ".bindPreMatrix[" + index + "]", *_flat(bound), type="matrix"
+            )
+    old = cmds.ls("plumeOval*") or []
+    if old:
+        cmds.delete(old)
+
+
+def _existing_twist(necks, positions):
+    """Twist readers and fixes already in the scene, measured at this pose."""
+    twist = {"reads": {}, "fixes": {}, "count": len(necks), "ovals": {}}
+    for index, neck in enumerate(necks):
+        decompose = "plumeTwist_%d_dm" % index
+        orient = "plumeTwist_%d_orient" % index
+        if not cmds.objExists(decompose) or not cmds.objExists(orient):
+            continue
+        bone = _neck_bone(positions, index)
+        matrix = cmds.xform(neck, query=True, matrix=True, worldSpace=True)
+        rows = [_norm(matrix[0:3]), _norm(matrix[4:7]), _norm(matrix[8:11])]
+        axis = tuple(_dot(bone, row) for row in rows)
+        twist["reads"][index] = (decompose, axis, cmds.ls(orient, long=True)[0])
+    for node in cmds.ls("plumeTwistFix_*", type="transform", long=True) or []:
+        parts = node.split("|")[-1].split("_")
+        if len(parts) < 3 or not parts[-1].isdigit() or not parts[-2].isdigit():
+            continue
+        twist["fixes"][(int(parts[-2]), int(parts[-1]))] = node
+    return twist
+
+
+def _bind_pose():
+    """True when the neck twist and the splay are off, so the oval is measured at rest."""
+    for node in cmds.ls("plumeTwistFix_*", type="transform") or []:
+        if abs(cmds.getAttr(node + ".rotateY")) > 0.5:
+            return False
+    head = _solo("head_*_ctl")
+    if not head:
+        return True
+    for name in _splay_peaks(cmds.listAttr(head, userDefined=True) or []):
+        if abs(cmds.getAttr(head + "." + name)) > 0.5:
+            return False
+    if cmds.attributeQuery("wind", node=head, exists=True):
+        if abs(cmds.getAttr(head + ".wind")) > 0.01:
+            return False
+    return True
+
+
+def add_oval():
+    """Scale the twisted feathers back onto the oval. Run this on the bind pose.
+
+    A rig pinned before this existed has the twist and not the oval. Pinning
+    again builds it itself. A round neck is left alone. Safe to run again.
+    """
+    necks = _neck_division_joints()
+    if len(necks) < 2 or not cmds.objExists("plume_feathers_rig"):
+        cmds.warning("No pinned feathers. Oval was left alone.")
+        return None
+    if not _bind_pose():
+        cmds.warning("Go to the bind pose first. The oval is measured there.")
+        return None
+    skin = None
+    for node in cmds.ls(type="skinCluster") or []:
+        geos = cmds.skinCluster(node, query=True, geometry=True) or []
+        if any(geo.split("|")[-1].startswith("plume_feathers_rig") for geo in geos):
+            skin = node
+            break
+    if not skin:
+        cmds.warning("No feather skin. Oval was left alone.")
+        return None
+    positions = [_world_translation(joint) for joint in necks]
+    twist = _existing_twist(necks, positions)
+    if not twist["reads"]:
+        cmds.warning("No twist on the neck. Oval was left alone.")
+        return None
+    cmds.undoInfo(openChunk=True, chunkName="add_oval")
+    try:
+        _drop_ovals(skin)
+        _build_ovals(twist, necks, positions)
+        _attach_oval(skin, twist)
+        _twist_expression(twist)
+        return twist.get("ovals")
+    finally:
+        cmds.undoInfo(closeChunk=True)
+
+
 def _twist_expression(twist):
-    """One expression: each twist fix turns by TWIST_RIGIDITY of (row twist minus own twist)."""
-    if not twist["fixes"]:
+    """One expression: each twist fix turns by TWIST_RIGIDITY of (row twist minus own twist).
+
+    Each oval frame turns back by its own joint's twist, so the squash stays
+    lined up with the body while the feathers spin under it.
+    """
+    if not twist["fixes"] and not twist.get("ovals"):
         return
     head = _solo("head_*_ctl")
     lines = ["float $w, $s;", "float $r = %s;" % (head + ".rotateY" if head else "0")]
@@ -3337,11 +3778,14 @@ def _twist_expression(twist):
             "%s.rotateY = %g * ($t%d - $t%d);"
             % (fix.split("|")[-1], TWIST_RIGIDITY, row_index, index)
         )
-    cmds.expression(
-        name="plumeTwistExpr",
-        string="\n".join(lines),
-        alwaysEvaluate=False,
-    )
+    for index, (oval, _phi, _sx, _sz) in sorted(twist.get("ovals", {}).items()):
+        short = oval.split("|")[-1]
+        lines.append("%s.rotateY = %s.phi - $t%d;" % (short, short, index))
+    text = "\n".join(lines)
+    if cmds.objExists("plumeTwistExpr"):
+        cmds.expression("plumeTwistExpr", edit=True, string=text, alwaysEvaluate=False)
+    else:
+        cmds.expression(name="plumeTwistExpr", string=text, alwaysEvaluate=False)
 
 
 def _splay_peaks(names):
@@ -4023,6 +4467,7 @@ def _check_frame_axes():
 
 
 _check_frame_axes()
+_check_oval()
 
 
 def _drive_neck_orientation(ctl, driver):
