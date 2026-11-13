@@ -146,6 +146,11 @@ Append a dated one-liner per mistake. Never delete entries.
   channel, `rotateY` by default) does not move the target, so the tip joint
   stays put while pitch and bank still come through the aim. Apply that
   channel on a parent of the tip joint driver, around the spline's Y.
+- 2026-11-13 `attribute.setRotOrder` after `addCtl` fails: that plug is already locked. Leave the default.
+- 2026-11-13 A control channel connected onto a child of that control is applied twice. Cancel `rotateY` with a `unitConversion` factor of -1 between the two angle plugs. A `multDL` reads a plain double, and the unit conversion turns the angle into radians.
+- 2026-11-13 Maya `polySelect -edgeRing` is the parallel stack, not the connected contour. Grow one selected edge by walking the border, or the straightest edge through each vertex.
+- 2026-11-13 `addCtl` locks the parent npo's transform channels, and `cmds.xform` on a locked channel changes nothing and says nothing. A control moved after `addCtl` stays where it was. Pass the final matrix to `addTransform` / `addCtl`, or unlock the npo around the `xform`. A test whose mesh is already square to the world cannot catch this: tilt it.
+- 2026-11-13 A `control_01` ignores its guide's rotation (World Space Orientation Align is on by default). To line up with a parent, read the built control the component hangs from after Connect, not the parent's guide.
 - 2026-09-10 For any list-of-scene-objects setting, copy the stock IK Reference Array layout
   (`arm_2jnt_01/settingsUI.py`): list on the left, `<<` / `>>` stacked on the right, plus
   `InternalMove` drag reordering. A plain list with buttons underneath reads as having no
