@@ -47,7 +47,7 @@ Any new `addParam` after guides exist in the wild must also land in `_UPGRADE_PA
 ```powershell
 $env:MAYA_MODULE_PATH="C:\Users\andre\Documents\GitHub\mgear\release"
 cd components
-& "C:\Program Files\Autodesk\Maya2026\bin\mayapy.exe" smoke_build.py
+& "C:\Program Files\Autodesk\Maya2027\bin\mayapy.exe" smoke_build.py
 ```
 
 Shifter draws guides and builds rigs under `maya.standalone`, so this is a full draw-build-assert

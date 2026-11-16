@@ -1,5 +1,7 @@
 """Guide for one sliding seam between two edge rings."""
 
+from functools import partial
+
 import mgear.pymaya as pm
 
 from mgear.shifter.component import guide
@@ -16,18 +18,27 @@ AUTHOR = "In-Between"
 URL = "https://github.com/andre/the-in-between"
 EMAIL = ""
 VERSION = [0, 1, 0]
+
+
+def guide_name(text):
+    """A guide node name as typed. Underscores are legal and must stay."""
+    return (text or "").strip()
+
+
+assert guide_name("neck_C0_root") == "neck_C0_root"
+
+
 TYPE = "ring_slide"
 NAME = "ring"
 DESCRIPTION = (
     "One seam. Two edge rings, an over and an under, and a center at the "
-    "over ring. An optional parent component, which the center control lines "
-    "up with exactly.\n\n"
-    "Draw it from the sheet_rig window: select each edge ring and capture "
-    "it. The guide marks the center and both loops. Build with Shifter. "
-    "The center control translates and rotates. Rotate X and rotate Z move "
-    "both rings together. Rotate Y slides the over joints along the under "
-    "loop, in 3D, so the seam does not intersect. One component is one seam. "
-    "A neck needs two of these, and an ordinary twist chain between them."
+    "over ring. Point it at a base spline, a base control, and a tip control "
+    "and the spline's own controls are hidden: the seam rides the spline "
+    "joints and twists between the base and the tip. An optional parent "
+    "component still lines the center up exactly "
+    "when no spline is set.\n\n"
+    "Draw it from the ring_guide window. The tip has to stay a sibling of "
+    "the base. Parenting the tip under the spline cycles the tip constraint."
 )
 
 
@@ -40,6 +51,12 @@ _UPGRADE_PARAMS = (
     ("overCrv", "string", "", None, None),
     ("underCrv", "string", "", None, None),
     ("parentComp", "string", "", None, None),
+    ("baseSpline", "string", "", None, None),
+    ("baseCtl", "string", "", None, None),
+    ("tipCtl", "string", "", None, None),
+    ("splineJoint", "long", -1, None, None),
+    ("underTurn", "long", -1, None, None),
+    ("overTurn", "long", -1, None, None),
     ("useIndex", "bool", False, None, None),
     ("parentJointIndex", "long", -1, None, None),
 )
@@ -72,6 +89,12 @@ class Guide(guide.ComponentGuide):
         self.pOverCrv = self.addParam("overCrv", "string", "")
         self.pUnderCrv = self.addParam("underCrv", "string", "")
         self.pParentComp = self.addParam("parentComp", "string", "")
+        self.pBaseSpline = self.addParam("baseSpline", "string", "")
+        self.pBaseCtl = self.addParam("baseCtl", "string", "")
+        self.pTipCtl = self.addParam("tipCtl", "string", "")
+        self.pSplineJoint = self.addParam("splineJoint", "long", -1, None, None)
+        self.pUnderTurn = self.addParam("underTurn", "long", -1, None, None)
+        self.pOverTurn = self.addParam("overTurn", "long", -1, None, None)
         self.pUseIndex = self.addParam("useIndex", "bool", False)
         self.pParentJointIndex = self.addParam(
             "parentJointIndex", "long", -1, None, None
@@ -130,7 +153,12 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
             return str(len(found)) if found else "—"
 
         tab.mesh_label.setText(self.root.attr("mesh").get() or "—")
-        tab.parent_label.setText(self.root.attr("parentComp").get() or "—")
+        tab.spline_edit.setText(self.root.attr("baseSpline").get() or "")
+        tab.base_edit.setText(self.root.attr("baseCtl").get() or "")
+        tab.tip_edit.setText(self.root.attr("tipCtl").get() or "")
+        tab.joint_spin.setValue(self.root.attr("splineJoint").get())
+        tab.under_spin.setValue(self.root.attr("underTurn").get())
+        tab.over_spin.setValue(self.root.attr("overTurn").get())
         tab.over_label.setText(count("overVerts") + " vertices")
         tab.under_label.setText(count("underVerts") + " vertices")
 
@@ -141,7 +169,26 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setLayout(self.settings_layout)
 
     def create_componentConnections(self):
-        return
+        tab = self.settingsTab
+        for edit, attr in (
+            (tab.spline_edit, "baseSpline"),
+            (tab.base_edit, "baseCtl"),
+            (tab.tip_edit, "tipCtl"),
+        ):
+            edit.editingFinished.connect(partial(self._keep_name, edit, attr))
+        tab.joint_spin.valueChanged.connect(
+            partial(self.updateSpinBox, tab.joint_spin, "splineJoint")
+        )
+        tab.under_spin.valueChanged.connect(
+            partial(self.updateSpinBox, tab.under_spin, "underTurn")
+        )
+        tab.over_spin.valueChanged.connect(
+            partial(self.updateSpinBox, tab.over_spin, "overTurn")
+        )
+
+    def _keep_name(self, edit, attr):
+        # updateLineEdit strips "_". Maya node names need them.
+        self.root.attr(attr).set(guide_name(edit.text()))
 
     def dockCloseEventTriggered(self):
         pyqt.deleteInstances(self, MayaQDockWidget)

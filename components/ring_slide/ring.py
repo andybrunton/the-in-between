@@ -82,21 +82,21 @@ def _side_axis(normal):
 
 
 def guide_frame(over_points, under_points):
-    """(origin, x, y, z). Y points from the under ring to the over ring.
+    """(origin, x, y, z). Y is the ring's plane normal, toward the over ring.
 
-    That is the straight axis through the two rings. X is a world axis
-    laid into the plane, not the first vertex, so the control is not rolled.
+    Not the line between the two centroids: adjacent loops sit almost on top
+    of each other, so that line is noise, and the twist turns about Y.
+    X is a world axis laid into the plane, not the first vertex, so the
+    control is not rolled.
     """
     if len(over_points) < 3:
         return None
     origin = centroid(over_points)
-    y = None
-    if under_points:
-        y = norm(sub(origin, centroid(under_points)))
-    if y is None:
-        y = newell(over_points)
+    y = newell(under_points if len(under_points) >= 3 else over_points)
     if y is None:
         return None
+    if under_points and dot(y, sub(origin, centroid(under_points))) < 0.0:
+        y = mul(y, -1.0)
     x = _side_axis(y)
     if x is None:
         return None
@@ -104,6 +104,21 @@ def guide_frame(over_points, under_points):
     if z is None:
         return None
     return origin, x, y, z
+
+
+def shell_turn(size, other_size, mean, seam):
+    """Share of the head's turn a mesh shell takes at a seam.
+
+    size and other_size are vertex counts of the shell on this side of the
+    seam and on the far side, mean the shell's average fraction along base to
+    tip (0 base, 1 tip), seam the seam's own fraction. The bigger shell is
+    the head or the chest, by which side of the seam its bulk lies: 1 or 0.
+    The smaller one is neck and turns by the seam's own place. Ranges would
+    not do: a tilted ring dips past the chest control.
+    """
+    if size <= other_size:
+        return seam
+    return 1.0 if mean > seam else 0.0
 
 
 def loop_frame(points):
@@ -164,6 +179,34 @@ def _at_distance(spans, total, distance):
             return pos, tan
     start, end = spans[-1][0], spans[-1][1]
     return start, norm(sub(end, start)) or (1.0, 0.0, 0.0)
+
+
+def chain_fraction(point, points):
+    """Arc-length fraction of the nearest point on an open chain. 0 is the start."""
+    spans = []
+    total = 0.0
+    for index in range(len(points) - 1):
+        start = points[index]
+        end = points[index + 1]
+        span = length(sub(end, start))
+        spans.append((start, end, span, total))
+        total += span
+    if total < 1e-8:
+        return 0.0
+    best = None
+    found = 0.0
+    for start, end, span, origin in spans:
+        if span < 1e-8:
+            continue
+        edge = sub(end, start)
+        t = dot(sub(point, start), edge) / (span * span)
+        t = min(1.0, max(0.0, t))
+        pos = add(start, mul(edge, t))
+        dist = length(sub(point, pos))
+        if best is None or dist < best:
+            best = dist
+            found = (origin + span * t) / total
+    return found
 
 
 def closest_fraction(point, loop):
@@ -347,6 +390,17 @@ def _check():
     assert abs(y[1] - 1.0) < 1e-6
     assert abs(x[0] - 1.0) < 1e-6
     assert abs(dot(z, cross(x, y)) - 1.0) < 1e-6
+    # A tilted over loop beside the under loop: Y stays the ring normal.
+    skewed = [(point[0] + 0.5, 0.01, point[2]) for point in under]
+    assert guide_frame(skewed, under)[2][1] > 0.999
+    assert shell_turn(3600, 44, 1.6, 0.75) == 1.0
+    assert shell_turn(3500, 44, -1.0, 0.1) == 0.0
+    assert shell_turn(44, 3600, 0.45, 0.73) == 0.73
+    assert shell_turn(44, 44, 0.45, 0.73) == 0.73
+    chain = [(0.0, 0.0, 0.0), (0.0, 2.0, 0.0), (0.0, 4.0, 0.0)]
+    assert abs(chain_fraction((0.0, 1.0, 0.0), chain) - 0.25) < 1e-6
+    assert chain_fraction((0.0, -1.0, 0.0), chain) == 0.0
+    assert abs(chain_fraction((0.0, 5.0, 0.0), chain) - 1.0) < 1e-6
 
 
 _check()

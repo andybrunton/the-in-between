@@ -1,9 +1,14 @@
-"""Capture an over edge ring and an under edge ring, then draw the guide.
+"""Pick the base spline, the base control, and the tip control, then capture the edge rings.
 
-The guide marks the center of the over ring and both loops. Build it with
-Shifter: one center joint, one joint on every vertex, and a linear skin.
-Rotate X and rotate Z move both rings together. Rotate Y slides the over
-joints along the under loop.
+The base spline is the chain the seams sit on: a spine, a neck, a sleeve.
+Create draws a spine_S_shape_01 with the neck defaults, under the base
+control when one is filled in. Base and tip are control_01 guides. Create
+puts the base on the spline root and the tip on its end. The tip is parented
+to the base control's parent, so a base under root gets a tip under root.
+Do not parent the tip under the spline. Then capture an over edge ring and
+an under edge ring. Build it with Shifter. The spline's own controls are
+hidden. The base and the tip drive the chain, and each seam twists between
+them. The center takes its orientation from the spline joints.
 
 One guide is one seam. Run it again for the other end of the neck. Select a
 ring guide and Create Guide to replace that one.
@@ -12,8 +17,8 @@ Run in Maya::
 
     import sys
     sys.path.append("C:/Users/andre/Documents/GitHub/the-in-between/tools")
-    import sheet_rig
-    sheet_rig.show()
+    import ring_guide
+    ring_guide.show()
 """
 
 import os
@@ -243,7 +248,127 @@ def _ring():
     return module
 
 
-def create_guide(over, under, parent_comp=""):
+SPINE_TYPE = "spine_S_shape_01"
+
+# The component slider shows Lock Orient as 0-100. 100 is stored as 1.
+SPINE_DEFAULTS = (
+    ("softness", 0.0),
+    ("position", 0.0),
+    ("lock_ori", 1.0),
+    ("maxstretch", 5.0),
+    ("maxsquash", 0.1),
+    ("division", 5),
+    ("autoBend", 0),
+    ("IKWorldOri", 1),
+    ("centralTangent", 0),
+)
+
+
+def _draw_component(comp_type, comp_name, values=(), translation=None, parent=None):
+    """Draw a guide component. Returns its root, or None."""
+    import mgear.pymaya as pm
+    import mgear.shifter as shifter
+
+    _ensure_path()
+    shifter.clearComponentCache()
+    guide_rig = shifter.guide.Rig()
+    if not cmds.objExists("guide"):
+        guide_rig.initialHierarchy()
+    comp = guide_rig.getComponentGuide(comp_type)
+    if not comp:
+        cmds.warning("Could not find the {} component.".format(comp_type))
+        return None
+
+    undo = cmds.undoInfo(query=True, state=True)
+    if undo:
+        cmds.undoInfo(openChunk=True, chunkName="create {} guide".format(comp_name))
+    try:
+        comp.setParamDefValue("comp_name", comp_name)
+        parent = parent or "guide"
+        if not cmds.objExists(parent):
+            cmds.warning("Parent '{}' is missing. Drawing under the guide.".format(parent))
+            parent = "guide"
+        comp.draw(pm.PyNode(parent))
+        root = comp.root.longName()
+        for name, value in values:
+            cmds.setAttr(root + "." + name, value)
+        if translation is not None:
+            cmds.xform(root, worldSpace=True, translation=translation)
+        cmds.select(root)
+        print("Drew {}.".format(_short(root)))
+        return root
+    finally:
+        if undo:
+            cmds.undoInfo(closeChunk=True)
+
+
+def create_spine(parent=None):
+    """Draw a spine_S_shape_01 with the neck defaults.
+
+    parent is a guide root, usually the base control, so the chain hangs off
+    it. Returns the guide root, or None. An existing neck or sleeve can be
+    picked instead of calling this.
+    """
+    return _draw_component(SPINE_TYPE, "spine", SPINE_DEFAULTS, parent=parent)
+
+
+def create_control(comp_name, translation=None, parent=None):
+    """Draw a control_01 named comp_name. Returns the guide root, or None."""
+    return _draw_component("control_01", comp_name, translation=translation, parent=parent)
+
+
+def sibling_parent(control_root):
+    """Where a tip guide hangs: the base control's parent, not the spline.
+
+    A tip parented under the spline cycles once the tip drives the spline.
+    """
+    if not control_root or not cmds.objExists(control_root):
+        return None
+    found = cmds.listRelatives(control_root, parent=True, fullPath=True) or []
+    return found[0] if found else None
+
+
+def component_ends(root):
+    """World positions (root, tip) of a guide. The tip is its ``_eff`` locator.
+
+    A chain with no eff uses a point 4 units above the root, which is where
+    a new spine draws its tip.
+    """
+    root = (cmds.ls(root, long=True) or [root])[0]
+    base = tuple(cmds.xform(root, query=True, worldSpace=True, translation=True))
+    short = _short(root)
+    if short.endswith("_root"):
+        short = short[:-5]
+    tip = None
+    for node in cmds.ls(short + "_eff", long=True) or []:
+        parent = cmds.listRelatives(node, parent=True, fullPath=True) or []
+        if parent and parent[0] == root:
+            tip = tuple(cmds.xform(node, query=True, worldSpace=True, translation=True))
+            break
+    if tip is None:
+        tip = (base[0], base[1] + 4.0, base[2])
+    return base, tip
+
+
+def spline_joint_index(spline, point):
+    """Numbered spline joint nearest a point, or -1 when it cannot be told.
+
+    The guide has no joints yet. They sit evenly from the spline's root to
+    its end, so the point's place along that line gives the index.
+    """
+    if not spline or not cmds.objExists(spline) or not cmds.attributeQuery("division", node=spline, exists=True):
+        return -1
+    count = int(cmds.getAttr(spline + ".division"))
+    start, end = component_ends(spline)
+    span = [end[i] - start[i] for i in range(3)]
+    size = sum(part * part for part in span)
+    if count < 2 or size < 1e-12:
+        return -1
+    along = sum((point[i] - start[i]) * span[i] for i in range(3)) / size
+    return int(round(min(1.0, max(0.0, along)) * (count - 1)))
+
+
+def create_guide(over, under, parent_comp="", base_spline="", base_ctl="", tip_ctl=""):
     """Draw a ring_slide guide. Returns the guide root, or None.
 
     A selected ring_slide guide is replaced. Otherwise a new one is added,
@@ -324,6 +449,13 @@ def create_guide(over, under, parent_comp=""):
             base = base[:-5]
         over_crv = _loop_curve(base + "_over_crv", over_local, root, 17)
         under_crv = _loop_curve(base + "_under_crv", under_local, root, 18)
+        resolved = (cmds.ls(base_spline, long=True) or [""])[0] if base_spline else ""
+        centre = [
+            (sum(point[i] for point in over_points) / len(over_points)
+             + sum(point[i] for point in under_points) / len(under_points)) * 0.5
+            for i in range(3)
+        ]
+        cmds.setAttr(root + ".splineJoint", spline_joint_index(resolved, centre))
         for attr, value in (
             ("mesh", over_mesh),
             ("overEdge", " ".join(_short(part) for part in over.split())),
@@ -333,6 +465,9 @@ def create_guide(over, under, parent_comp=""):
             ("overCrv", _short(over_crv)),
             ("underCrv", _short(under_crv)),
             ("parentComp", parent_comp),
+            ("baseSpline", _short(base_spline) if base_spline else ""),
+            ("baseCtl", _short(base_ctl) if base_ctl else ""),
+            ("tipCtl", _short(tip_ctl) if tip_ctl else ""),
         ):
             cmds.setAttr(root + "." + attr, value, type="string")
         cmds.select(root)
@@ -349,23 +484,35 @@ class Dialog(QtWidgets.QDialog):
         self.setObjectName("RingSlideUI")
         self.setWindowTitle("Ring Slide")
         self.setStyleSheet(_STYLE)
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(460)
+        self._name_jobs = {}
         layout = QtWidgets.QVBoxLayout(self)
+        self.spline = self._row(
+            layout, "Base Spline", "Spine, neck, sleeve, or another chain",
+            self._capture_spline, "Use the selected chain component.",
+            self._create_spline, "Draw a spine_S_shape_01 with the neck defaults.",
+        )
+        self.base = self._row(
+            layout, "Base", "control_01 at the root of the chain",
+            self._capture_control, "Use the selected control_01.",
+            self._create_base, "Draw a control_01 named base.",
+        )
+        self.tip = self._row(
+            layout, "Tip", "control_01 at the end of the chain",
+            self._capture_control, "Use the selected control_01.",
+            self._create_tip, "Draw a control_01 named tip.",
+        )
         self.over = self._row(layout, "Over", "Edge ring that slides")
         self.under = self._row(layout, "Under", "Edge ring it slides along")
-        self.parent = self._row(
-            layout, "Parent", "Optional. Control lines up with this component",
-            self._capture_parent, "Use the selected guide component. An empty selection clears it.",
-        )
         button = QtWidgets.QPushButton("Create Guide")
         button.clicked.connect(self._create)
         layout.addWidget(button)
         self._load_selected()
 
-    def _row(self, layout, label, tip, capture=None, pick_tip=None):
+    def _row(self, layout, label, tip, capture=None, pick_tip=None, create=None, create_tip=None):
         row = QtWidgets.QHBoxLayout()
         text = QtWidgets.QLabel(label)
-        text.setFixedWidth(52)
+        text.setFixedWidth(76)
         field = QtWidgets.QLineEdit()
         field.setPlaceholderText(tip)
         pick = QtWidgets.QPushButton("<<")
@@ -376,6 +523,12 @@ class Dialog(QtWidgets.QDialog):
         row.addWidget(text)
         row.addWidget(field)
         row.addWidget(pick)
+        if create:
+            made = QtWidgets.QPushButton("Create")
+            made.setFixedWidth(52)
+            made.setToolTip(create_tip or "")
+            made.clicked.connect(create)
+            row.addWidget(made)
         layout.addLayout(row)
         return field
 
@@ -385,7 +538,7 @@ class Dialog(QtWidgets.QDialog):
         if len(edges) == 1:
             edges = _grow_loop(edges[0])
         if not _walk_verts(edges):
-            field.clear()
+            self._clear(field)
             cmds.warning("Select one closed edge loop.")
             return
         compact = cmds.ls(edges, flatten=False) or edges
@@ -393,15 +546,127 @@ class Dialog(QtWidgets.QDialog):
         field.setText(text)
         field.setToolTip(text)
 
-    def _capture_parent(self, field):
-        for node in cmds.ls(selection=True, long=True) or []:
-            root = _guide_root(node)
-            if root and cmds.getAttr(root + ".comp_type") != "ring_slide":
-                field.setText(_short(root))
-                field.setToolTip(_short(root))
-                return
+    def _fill(self, field, root):
+        """Show this guide, and follow later renames of the same node."""
+        short = _short(root)
+        field.setText(short)
+        field.setToolTip(short)
+        self._watch(field, root)
+
+    def _clear(self, field):
+        self._unwatch(field)
         field.clear()
         field.setToolTip("")
+
+    def _watch(self, field, root):
+        """Notice when this guide's node is renamed, and write the new name.
+
+        The Maya API callback follows the node, so it still fires after the
+        name has changed. A scriptJob for the same event does not.
+        """
+        import maya.api.OpenMaya as om
+
+        self._unwatch(field)
+        picked = om.MSelectionList()
+        picked.add(root)
+        node = picked.getDependNode(0)
+
+        def _renamed(renamed, _previous, _client):
+            if field.hasFocus():
+                return
+            new = om.MFnDependencyNode(renamed).name()
+            if field.text() != new:
+                field.setText(new)
+                field.setToolTip(new)
+
+        self._name_jobs[field] = om.MNodeMessage.addNameChangedCallback(node, _renamed)
+
+    def _unwatch(self, field):
+        import maya.api.OpenMaya as om
+
+        callback = self._name_jobs.pop(field, None)
+        if callback is not None:
+            om.MMessage.removeCallback(callback)
+
+    def closeEvent(self, event):
+        for field in (self.spline, self.base, self.tip):
+            self._unwatch(field)
+        super(Dialog, self).closeEvent(event)
+
+    def _selected_guide(self, accept):
+        for node in cmds.ls(selection=True, long=True) or []:
+            root = _guide_root(node)
+            if root and accept(cmds.getAttr(root + ".comp_type")):
+                return root
+        return None
+
+    def _capture_spline(self, field):
+        root = self._selected_guide(lambda kind: kind not in ("control_01", "ring_slide"))
+        if not root:
+            self._clear(field)
+            cmds.warning("Select a chain component, such as a spine, neck, or sleeve.")
+            return
+        self._fill(field, root)
+
+    def _capture_control(self, field):
+        root = self._selected_guide(lambda kind: kind == "control_01")
+        if not root:
+            self._clear(field)
+            cmds.warning("Select a control_01.")
+            return
+        self._fill(field, root)
+
+    def _create_spline(self):
+        base = self._resolve(self.base.text(), lambda kind: kind == "control_01")
+        root = create_spine(base)
+        if root:
+            self._fill(self.spline, root)
+
+    def _create_base(self):
+        spline = self._resolve(self.spline.text(), self._is_spline)
+        base = component_ends(spline)[0] if spline else None
+        root = create_control("base", base)
+        if root:
+            self._fill(self.base, root)
+
+    def _create_tip(self):
+        spline = self._resolve(self.spline.text(), self._is_spline)
+        tip = component_ends(spline)[1] if spline else (0.0, 4.0, 0.0)
+        base = self._resolve(self.base.text(), lambda kind: kind == "control_01")
+        root = create_control("tip", tip, parent=sibling_parent(base))
+        if root:
+            self._fill(self.tip, root)
+
+    def _resolve(self, name, accept):
+        found = cmds.ls((name or "").strip(), long=True) or []
+        owner = _guide_root(found[0]) if found else None
+        if not owner or not accept(cmds.getAttr(owner + ".comp_type")):
+            return None
+        return owner
+
+    def _is_spline(self, kind):
+        return kind not in ("control_01", "ring_slide")
+
+    def _inputs_ready(self):
+        spline = self._resolve(self.spline.text(), self._is_spline)
+        base = self._resolve(self.base.text(), lambda kind: kind == "control_01")
+        tip = self._resolve(self.tip.text(), lambda kind: kind == "control_01")
+        if not spline:
+            cmds.warning("Pick a base spline or create one. A spine, neck, or sleeve.")
+            return False
+        if not base:
+            cmds.warning("Pick a base control_01 or create one.")
+            return False
+        if not tip:
+            cmds.warning("Pick a tip control_01 or create one.")
+            return False
+        if base == tip:
+            cmds.warning("Base and tip have to be two different controls.")
+            return False
+        self._fill(self.spline, spline)
+        self._fill(self.base, base)
+        self._fill(self.tip, tip)
+        return True
 
     def _load_selected(self):
         root = _selected_ring()
@@ -409,14 +674,16 @@ class Dialog(QtWidgets.QDialog):
             return
         self.over.setText(cmds.getAttr(root + ".overEdge") or "")
         self.under.setText(cmds.getAttr(root + ".underEdge") or "")
-        if cmds.attributeQuery("parentComp", node=root, exists=True):
-            self.parent.setText(cmds.getAttr(root + ".parentComp") or "")
 
     def _create(self):
+        if not self._inputs_ready():
+            return
         create_guide(
             self.over.text().strip(),
             self.under.text().strip(),
-            self.parent.text().strip(),
+            base_spline=self.spline.text().strip(),
+            base_ctl=self.base.text().strip(),
+            tip_ctl=self.tip.text().strip(),
         )
 
 
